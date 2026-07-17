@@ -1,10 +1,48 @@
-# Python environments and generated local data
-backend/.venv/
-backend/*.db
-backend/.pytest_cache/
-backend/**/__pycache__/
-*.py[cod]
+# Secrets
+.env
+**/.env
 
-# Local configuration
-backend/.env
-backend/artifacts/
+# Python
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Frontend
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.vite/
+**/.vite/
+
+# User uploads
+uploads/
+**/uploads/
+
+# Backup backend
+backend old/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Environment files
+.env
+**/.env
+.env.example
+**/.env.example
+.env.*
+**/.env.*
+.env
+**/.env
+.env.example
+**/.env.example

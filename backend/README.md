@@ -68,3 +68,60 @@ The separate `GET /api/v1/dashboard/rescue-mode` endpoint continues to use trans
 ## Personalisation roadmap
 
 The database already records `household_id`, pantry items, and inventory events. These events should later be converted into completed outcomes such as consumed, wasted, or expired. Periodic retraining can then combine the general dataset with real household behaviour. A household-specific model should only be introduced after enough completed outcomes exist; before that, household history should be added as features to the shared model.
+
+## Grocery ideas and meal planning
+
+The backend keeps one active grocery list per household. It combines:
+
+- current Smart Pantry quantities;
+- `consumed` inventory events from the last 90 days;
+- a minimum seven-day observation window to avoid overreacting to one event;
+- a small safety-stock allowance;
+- planned-meal ingredient requirements;
+- manual, user-locked list items.
+
+Core endpoints:
+
+```text
+GET    /api/v1/grocery-lists/active
+POST   /api/v1/grocery-lists/generate
+GET    /api/v1/grocery-lists/{list_id}
+POST   /api/v1/grocery-lists/{list_id}/meals
+DELETE /api/v1/grocery-lists/{list_id}/meals/{meal_id}
+POST   /api/v1/grocery-lists/{list_id}/items
+PATCH  /api/v1/grocery-lists/{list_id}/items/{item_id}
+DELETE /api/v1/grocery-lists/{list_id}/items/{item_id}
+POST   /api/v1/grocery-lists/{list_id}/start-shopping
+POST   /api/v1/grocery-lists/{list_id}/complete
+GET    /api/v1/grocery-lists/history
+```
+
+Generate or refresh a seven-day list:
+
+```json
+{
+  "coverage_days": 7
+}
+```
+
+Add a meal:
+
+```json
+{
+  "message": "I plan to make chicken karahi twice this week for 5 people"
+}
+```
+
+Meal planning is not limited to a fixed recipe catalogue. For any dish the user enters, Groq Compound performs web search, a second Groq model converts the research into validated ingredient JSON, and the backend applies frequency, safe quantity limits, pantry subtraction, and duplicate merging. Set `GROQ_API_KEY` to enable planned meals; the normal rule-based grocery list works without it.
+
+Recommended environment values:
+
+```env
+GROQ_API_KEY=your-key-here
+GROQ_RECIPE_RESEARCH_MODEL=groq/compound-mini
+GROQ_STRUCTURED_MODEL=llama-3.3-70b-versatile
+GROQ_TIMEOUT_SECONDS=30
+GROQ_REQUIRE_WEB_SEARCH=false
+```
+
+Receipt processing reconciles matching active grocery-list rows. A partial receipt keeps the list active; when all selected rows are satisfied, the list is completed automatically and remains available in history.

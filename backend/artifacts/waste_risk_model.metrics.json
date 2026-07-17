@@ -1,0 +1,43 @@
+{
+  "dataset_rows": 500,
+  "training_rows": 400,
+  "test_rows": 100,
+  "waste_rows": 107,
+  "used_rows": 393,
+  "positive_class": "not_used_before_expiry",
+  "models": {
+    "baseline_logistic_regression": {
+      "accuracy": 0.59,
+      "balanced_accuracy": 0.6007,
+      "waste_precision": 0.2826,
+      "waste_recall": 0.619,
+      "waste_f1": 0.3881,
+      "roc_auc": 0.5859,
+      "average_precision": 0.2478,
+      "confusion_matrix": {
+        "used_predicted_used": 46,
+        "used_predicted_waste": 33,
+        "waste_predicted_used": 8,
+        "waste_predicted_waste": 13
+      }
+    },
+    "xgboost": {
+      "accuracy": 0.65,
+      "balanced_accuracy": 0.5163,
+      "waste_precision": 0.2308,
+      "waste_recall": 0.2857,
+      "waste_f1": 0.2553,
+      "roc_auc": 0.5443,
+      "average_precision": 0.2418,
+      "confusion_matrix": {
+        "used_predicted_used": 59,
+        "used_predicted_waste": 20,
+        "waste_predicted_used": 15,
+        "waste_predicted_waste": 6
+      }
+    }
+  },
+  "selected_model": "baseline_logistic_regression",
+  "selected_model_version": "logistic-regression-v1",
+  "selection_mode": "best"
+}
