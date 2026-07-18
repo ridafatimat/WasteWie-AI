@@ -90,10 +90,50 @@ class RegisterRequest(BaseModel):
         max_length=128,
     )
 
-    household_name: str = Field(
+    household_name: str | None = Field(
+        default=None,
         min_length=1,
         max_length=120,
+        description=(
+            "Required when creating a new household. "
+            "Leave empty when joining through an invite."
+        ),
     )
+
+    household_invite_token: str | None = Field(
+        default=None,
+        min_length=20,
+        description=(
+            "Required when joining an existing household. "
+            "Leave empty when creating a new household."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_household_choice(self):
+        has_household_name = bool(
+            self.household_name and self.household_name.strip()
+        )
+        has_invite_token = bool(
+            self.household_invite_token
+            and self.household_invite_token.strip()
+        )
+
+        if has_household_name == has_invite_token:
+            raise ValueError(
+                "Provide exactly one of household_name or "
+                "household_invite_token"
+            )
+
+        if self.household_name is not None:
+            self.household_name = self.household_name.strip()
+
+        if self.household_invite_token is not None:
+            self.household_invite_token = (
+                self.household_invite_token.strip()
+            )
+
+        return self
 
 
 class LoginRequest(BaseModel):
@@ -113,15 +153,22 @@ class TokenRead(BaseModel):
     token_type: str = "bearer"
 
 
-class UserRead(BaseModel):
-    model_config = ConfigDict(
-        from_attributes=True
-    )
+class HouseholdInviteRead(BaseModel):
+    household_id: str
+    household_name: str
+    invite_token: str
+    expires_in_hours: int
 
+
+class UserRead(BaseModel):
     id: str
     name: str
     email: str
     created_at: datetime
+
+    household_id: str
+    household_name: str
+    household_role: str
 
 
 # ============================================================
@@ -183,7 +230,7 @@ class PantryItemUpdate(BaseModel):
 
     quantity: float | None = Field(
         default=None,
-        gt=0,
+        ge=0,
     )
 
     unit: str | None = Field(
@@ -648,3 +695,178 @@ class GroceryListHistoryItem(BaseModel):
     completed_at: datetime | None
     items: list[GroceryListItemRead] = Field(default_factory=list)
     meal_plans: list[MealPlanRead] = Field(default_factory=list)
+
+# ============================================================
+# Expiry-rescue recipe schemas
+# ============================================================
+
+
+RecipeUrgencyValue = Literal[
+    "today",
+    "tomorrow",
+    "day_after_tomorrow",
+]
+
+RecipeDifficultyValue = Literal[
+    "easy",
+    "medium",
+]
+
+
+class RecipeSuggestionRequest(BaseModel):
+    """Controls for Groq-powered expiry-rescue recipe generation."""
+
+    servings: int = Field(
+        default=4,
+        ge=1,
+        le=12,
+    )
+
+    recipe_count: int = Field(
+        default=3,
+        ge=1,
+        le=4,
+    )
+
+    cuisine: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=80,
+    )
+
+    dietary_preferences: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=160,
+    )
+
+
+class UrgentPantryItemRead(BaseModel):
+    """One usable pantry product expiring within the next three days."""
+
+    pantry_item_id: str
+    product_name: str
+    category: str | None
+
+    quantity: float
+    unit: str
+
+    expiry_date: date
+    days_until_expiry: int
+    urgency: RecipeUrgencyValue
+
+
+class RecipeIngredientRead(BaseModel):
+    name: str = Field(
+        min_length=1,
+        max_length=160,
+    )
+
+    quantity: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    unit: str | None = Field(
+        default=None,
+        max_length=40,
+    )
+
+    from_urgent_pantry: bool = False
+
+    pantry_item_name: str | None = Field(
+        default=None,
+        max_length=160,
+    )
+
+
+class RecipeRead(BaseModel):
+    title: str = Field(
+        min_length=2,
+        max_length=160,
+    )
+
+    description: str = Field(
+        min_length=5,
+        max_length=500,
+    )
+
+    servings: int = Field(
+        ge=1,
+        le=12,
+    )
+
+    prep_minutes: int = Field(
+        ge=0,
+        le=240,
+    )
+
+    cook_minutes: int = Field(
+        ge=0,
+        le=360,
+    )
+
+    difficulty: RecipeDifficultyValue
+
+    used_urgent_items: list[str] = Field(
+        default_factory=list,
+    )
+
+    ingredients: list[RecipeIngredientRead] = Field(
+        min_length=1,
+        max_length=30,
+    )
+
+    steps: list[str] = Field(
+        min_length=1,
+        max_length=20,
+    )
+
+    missing_ingredients: list[str] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+    waste_reduction_tip: str = Field(
+        min_length=5,
+        max_length=400,
+    )
+
+
+class RecipeSuggestionResponse(BaseModel):
+    generated_at: datetime
+    model: str
+
+    date_window_start: date
+    date_window_end: date
+
+    urgent_items: list[UrgentPantryItemRead]
+    recipes: list[RecipeRead]
+
+    message: str
+    safety_note: str
+
+
+class GroqRecipePayload(BaseModel):
+    """Internal validation model for Groq's JSON response."""
+
+    recipes: list[RecipeRead] = Field(
+        min_length=1,
+        max_length=4,
+    )
+
+
+# ============================================================
+# Household model status schemas
+# ============================================================
+
+
+class HouseholdModelStatusRead(BaseModel):
+    household_id: str
+    model_source: Literal["global", "household"]
+    version: int
+    total_resolved_outcomes: int
+    new_outcomes_since_training: int
+    last_trained_at: datetime | None
+    next_trigger: str
+    metrics: dict[str, Any] | None = None

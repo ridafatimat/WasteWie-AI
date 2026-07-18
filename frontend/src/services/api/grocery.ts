@@ -93,6 +93,34 @@ export async function startGroceryShopping(
   return response.data;
 }
 
+export async function returnGroceryListToDraft(
+  listId: string,
+): Promise<GroceryList> {
+  const response = await api.post<GroceryList>(
+    `/grocery-lists/${listId}/return-to-draft`,
+  );
+
+  return response.data;
+}
+
+/**
+ * Mark one shopping-list item as bought.
+ *
+ * The backend creates a new Smart Pantry purchase batch and returns the
+ * refreshed grocery list. This action is intentionally idempotent: clicking
+ * again must not create a duplicate pantry batch.
+ */
+export async function markGroceryListItemPurchased(
+  listId: string,
+  itemId: string,
+): Promise<GroceryList> {
+  const response = await api.post<GroceryList>(
+    `/grocery-lists/${listId}/items/${itemId}/purchase`,
+  );
+
+  return response.data;
+}
+
 export async function completeGroceryList(
   listId: string,
 ): Promise<GroceryList> {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
   DialogContent,
@@ -41,18 +42,20 @@ const CATEGORIES = [
   "meat",
   "snack",
   "vegetable",
+  "other",
 ] as const;
 
 const LOCATIONS = [
   "fridge",
   "freezer",
   "pantry",
+  "unknown",
 ] as const;
 
 type FormState = {
   product_name: string;
   category: string;
-  quantity: number;
+  quantity: string;
   unit: string;
   purchase_date: string;
   expiry_date: string;
@@ -60,12 +63,28 @@ type FormState = {
   currency: string;
 };
 
+/*
+ * The older frontend type used quantity_remaining, while the backend PATCH
+ * schema intentionally accepts the API-friendly field "quantity".
+ *
+ * Keeping this local request type makes the payload correct even before the
+ * shared PantryItemUpdate type is cleaned up.
+ */
+type PantryUpdateRequest = Omit<
+  PantryItemUpdate,
+  "quantity_remaining"
+> & {
+  quantity: number;
+};
+
 const createEmptyForm = (): FormState => ({
   product_name: "",
   category: "dairy",
-  quantity: 1,
+  quantity: "1",
   unit: "unit",
-  purchase_date: new Date().toISOString().slice(0, 10),
+  purchase_date: new Date()
+    .toISOString()
+    .slice(0, 10),
   expiry_date: new Date(
     Date.now() + 7 * 86400000,
   )
@@ -86,6 +105,7 @@ export function PantryFormDialog({
   item?: PantryItem | null;
   onSaved: () => void | Promise<void>;
 }) {
+  const queryClient = useQueryClient();
   const isEdit = Boolean(item);
 
   const [form, setForm] = useState<FormState>(
@@ -110,21 +130,31 @@ export function PantryFormDialog({
 
     if (item) {
       setForm({
-        product_name: item.product_name || "",
-        category: item.category || "dairy",
-        quantity:
+        product_name:
+          item.product_name || "",
+        category:
+          item.category || "dairy",
+        quantity: String(
           item.quantity_remaining ??
-          item.quantity ??
-          1,
+            item.quantity ??
+            1,
+        ),
         unit: item.unit || "unit",
         purchase_date:
-          item.purchase_date?.slice(0, 10) ||
+          item.purchase_date?.slice(
+            0,
+            10,
+          ) ||
           createEmptyForm().purchase_date,
         expiry_date:
-          item.expiry_date?.slice(0, 10) ||
+          item.expiry_date?.slice(
+            0,
+            10,
+          ) ||
           createEmptyForm().expiry_date,
         storage_location:
-          item.storage_location || "fridge",
+          item.storage_location ||
+          "fridge",
         currency:
           item.price?.currency ||
           item.currency ||
@@ -147,21 +177,98 @@ export function PantryFormDialog({
   }, [open, item]);
 
   const submit = async () => {
-    setLoading(true);
     setError(null);
     setFieldErrors({});
 
+    const validationErrors: Record<
+      string,
+      string
+    > = {};
+
+    const productName =
+      form.product_name.trim();
+    const unit = form.unit.trim();
+    const quantity = Number(
+      form.quantity,
+    );
+
+    if (!productName) {
+      validationErrors.product_name =
+        "Product name is required.";
+    }
+
+    if (!unit) {
+      validationErrors.unit =
+        "Unit is required.";
+    }
+
+    if (
+      form.quantity.trim() === "" ||
+      !Number.isFinite(quantity)
+    ) {
+      validationErrors.quantity =
+        "Enter a valid quantity.";
+    } else if (quantity < 0) {
+      validationErrors.quantity =
+        "Quantity cannot be negative.";
+    } else if (
+      !isEdit &&
+      quantity <= 0
+    ) {
+      validationErrors.quantity =
+        "A new pantry item must have a quantity greater than zero.";
+    }
+
+    if (
+      form.expiry_date &&
+      form.purchase_date &&
+      form.expiry_date <
+        form.purchase_date
+    ) {
+      validationErrors.expiry_date =
+        "Expiry date must be on or after the purchase date.";
+    }
+
+    if (
+      priceAmount !== "" &&
+      (
+        !Number.isFinite(
+          Number(priceAmount),
+        ) ||
+        Number(priceAmount) < 0
+      )
+    ) {
+      validationErrors.price =
+        "Enter a valid non-negative price.";
+    }
+
+    if (
+      Object.keys(validationErrors)
+        .length > 0
+    ) {
+      setFieldErrors(
+        validationErrors,
+      );
+      return;
+    }
+
+    setLoading(true);
+
     try {
       if (isEdit && item) {
-        const payload: PantryItemUpdate = {
-          product_name:
-            form.product_name.trim(),
+        /*
+         * IMPORTANT:
+         * The backend PATCH schema expects "quantity", not
+         * "quantity_remaining". The service then maps quantity to the
+         * database quantity_remaining column and changes status to
+         * consumed when the value reaches zero.
+         */
+        const payload: PantryUpdateRequest = {
+          product_name: productName,
           category:
             form.category.toLowerCase(),
-          quantity_remaining: Number(
-            form.quantity,
-          ),
-          unit: form.unit.trim(),
+          quantity,
+          unit,
           purchase_date:
             form.purchase_date,
           expiry_date:
@@ -170,24 +277,73 @@ export function PantryFormDialog({
             form.storage_location.toLowerCase(),
         };
 
-        await updatePantryItem(
-          item.id,
-          payload,
+        const updatedItem =
+          await updatePantryItem(
+            item.id,
+            payload,
+          );
+
+        const savedQuantity = Number(
+          updatedItem.quantity_remaining ??
+            updatedItem.quantity,
         );
 
+        /*
+         * Do not display a false success message if the server ignored
+         * the requested quantity for any reason.
+         */
+        if (
+          !Number.isFinite(
+            savedQuantity,
+          ) ||
+          Math.abs(
+            savedQuantity - quantity,
+          ) > 1e-9
+        ) {
+          throw new Error(
+            "The server did not save the requested quantity. Please try again.",
+          );
+        }
+
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["pantry"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: [
+              "events",
+              item.id,
+            ],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: [
+              "all-events",
+            ],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["risks"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: [
+              "grocery-list",
+            ],
+          }),
+        ]);
+
+        await onSaved();
+
         toast.success(
-          "Pantry item updated",
+          quantity === 0
+            ? "Pantry item marked as consumed"
+            : "Pantry item updated",
         );
       } else {
         const payload: PantryItemCreate = {
-          product_name:
-            form.product_name.trim(),
+          product_name: productName,
           category:
             form.category.toLowerCase(),
-          quantity: Number(
-            form.quantity,
-          ),
-          unit: form.unit.trim(),
+          quantity,
+          unit,
           purchase_date:
             form.purchase_date,
           expiry_date:
@@ -198,22 +354,41 @@ export function PantryFormDialog({
 
         if (priceAmount !== "") {
           payload.price = {
-            amount: Number(priceAmount),
+            amount:
+              Number(priceAmount),
             currency:
               form.currency
                 .trim()
-                .toUpperCase() || "PKR",
+                .toUpperCase() ||
+              "PKR",
           };
         }
 
-        await createPantryItem(payload);
+        await createPantryItem(
+          payload,
+        );
+
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["pantry"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["risks"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: [
+              "grocery-list",
+            ],
+          }),
+        ]);
+
+        await onSaved();
 
         toast.success(
           "Pantry item added",
         );
       }
 
-      await onSaved();
       onOpenChange(false);
     } catch (err) {
       setFieldErrors(
@@ -230,7 +405,11 @@ export function PantryFormDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={(value) => {
+        if (!loading) {
+          onOpenChange(value);
+        }
+      }}
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
@@ -241,15 +420,18 @@ export function PantryFormDialog({
           </DialogTitle>
 
           <DialogDescription>
-            Fields match the backend
-            pantry-item schema.
+            {isEdit
+              ? "Update this purchase batch. Setting the quantity to 0 marks it as consumed."
+              : "Add a new purchase batch to the household pantry."}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Field
             label="Product name"
-            error={fieldErrors.product_name}
+            error={
+              fieldErrors.product_name
+            }
             full
           >
             <Input
@@ -267,7 +449,9 @@ export function PantryFormDialog({
 
           <Field
             label="Category"
-            error={fieldErrors.category}
+            error={
+              fieldErrors.category
+            }
           >
             <Select
               value={form.category}
@@ -338,25 +522,29 @@ export function PantryFormDialog({
           <Field
             label="Quantity"
             error={
-              isEdit
-                ? fieldErrors.quantity_remaining
-                : fieldErrors.quantity
+              fieldErrors.quantity
             }
           >
             <Input
               type="number"
-              min={0}
+              min={isEdit ? 0 : 0.01}
               step="0.01"
               value={form.quantity}
               onChange={(event) =>
                 setForm({
                   ...form,
-                  quantity: Number(
+                  quantity:
                     event.target.value,
-                  ),
                 })
               }
             />
+
+            {isEdit && (
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Enter 0 when none of this
+                batch remains.
+              </p>
+            )}
           </Field>
 
           <Field
@@ -368,7 +556,8 @@ export function PantryFormDialog({
               onChange={(event) =>
                 setForm({
                   ...form,
-                  unit: event.target.value,
+                  unit:
+                    event.target.value,
                 })
               }
               placeholder="litre"
@@ -383,7 +572,9 @@ export function PantryFormDialog({
           >
             <Input
               type="date"
-              value={form.purchase_date}
+              value={
+                form.purchase_date
+              }
               onChange={(event) =>
                 setForm({
                   ...form,
@@ -415,7 +606,12 @@ export function PantryFormDialog({
 
           {!isEdit && (
             <>
-              <Field label="Price (optional)">
+              <Field
+                label="Price (optional)"
+                error={
+                  fieldErrors.price
+                }
+              >
                 <Input
                   type="number"
                   min={0}
@@ -469,9 +665,9 @@ export function PantryFormDialog({
             disabled={loading}
             className="bg-gradient-pink text-white"
           >
-            {loading ? (
+            {loading && (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : null}
+            )}
 
             {isEdit
               ? "Save changes"

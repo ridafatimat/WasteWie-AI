@@ -11,6 +11,16 @@ import type {
   ReceiptProcessResponse,
   ReceiptScanResponse,
 } from "@/types/receipt";
+import type {
+  RecipeSuggestionRequest,
+  RecipeSuggestionResponse,
+} from "@/types/recipe";
+
+export type InventoryEventCreatePayload = {
+  event_type: "consumed" | "wasted" | "purchased" | "adjusted";
+  quantity: number;
+  notes?: string;
+};
 
 // ---------------- Auth ----------------
 
@@ -114,7 +124,7 @@ export async function updatePantryItem(
 
 export async function deletePantryItem(
   id: string,
-) {
+): Promise<void> {
   await api.delete(
     `/pantry-items/${id}`,
   );
@@ -124,14 +134,14 @@ export async function deletePantryItem(
 
 export async function createInventoryEvent(
   pantryItemId: string,
-  payload: InventoryEvent,
-) {
+  payload: InventoryEventCreatePayload,
+): Promise<InventoryEvent> {
   const response = await api.post(
     `/pantry-items/${pantryItemId}/events`,
     payload,
   );
 
-  return response.data;
+  return response.data as InventoryEvent;
 }
 
 export async function listInventoryEvents(
@@ -183,7 +193,9 @@ export async function getWasteRisk(): Promise<
 
 // ---------------- Receipts ----------------
 
-function buildReceiptFormData(file: File) {
+function buildReceiptFormData(
+  file: File,
+) {
   const formData = new FormData();
 
   formData.append(
@@ -197,60 +209,72 @@ function buildReceiptFormData(file: File) {
 
 export async function scanReceipt(
   file: File,
-  onProgress?: (progress: number) => void,
+  onProgress?: (
+    progress: number,
+  ) => void,
 ): Promise<ReceiptScanResponse> {
-  const response = await api.post<ReceiptScanResponse>(
-    "/receipts/scan",
-    buildReceiptFormData(file),
-    {
-      headers: {
-        "Content-Type": "multipart/form-data",
+  const response =
+    await api.post<ReceiptScanResponse>(
+      "/receipts/scan",
+      buildReceiptFormData(file),
+      {
+        headers: {
+          "Content-Type":
+            "multipart/form-data",
+        },
+        timeout: 180000,
+        onUploadProgress: (event) => {
+          if (
+            onProgress &&
+            event.total
+          ) {
+            onProgress(
+              Math.round(
+                (event.loaded /
+                  event.total) *
+                  100,
+              ),
+            );
+          }
+        },
       },
-      timeout: 180000,
-      onUploadProgress: (event) => {
-        if (
-          onProgress &&
-          event.total
-        ) {
-          onProgress(
-            Math.round(
-              (event.loaded / event.total) * 100,
-            ),
-          );
-        }
-      },
-    },
-  );
+    );
 
   return response.data;
 }
 
 export async function uploadReceipt(
   file: File,
-  onProgress?: (progress: number) => void,
+  onProgress?: (
+    progress: number,
+  ) => void,
 ): Promise<ReceiptProcessResponse> {
-  const response = await api.post<ReceiptProcessResponse>(
-    "/receipts/process",
-    buildReceiptFormData(file),
-    {
-      headers: {
-        "Content-Type": "multipart/form-data",
+  const response =
+    await api.post<ReceiptProcessResponse>(
+      "/receipts/process",
+      buildReceiptFormData(file),
+      {
+        headers: {
+          "Content-Type":
+            "multipart/form-data",
+        },
+        timeout: 180000,
+        onUploadProgress: (event) => {
+          if (
+            onProgress &&
+            event.total
+          ) {
+            onProgress(
+              Math.round(
+                (event.loaded /
+                  event.total) *
+                  100,
+              ),
+            );
+          }
+        },
       },
-      timeout: 180000,
-      onUploadProgress: (event) => {
-        if (
-          onProgress &&
-          event.total
-        ) {
-          onProgress(
-            Math.round(
-              (event.loaded / event.total) * 100,
-            ),
-          );
-        }
-      },
-    },
-  );
+    );
 
   return response.data;
 }
@@ -266,12 +290,16 @@ export async function getGroceryRecommendations() {
 }
 
 export async function getRecipeRecommendations(
-  payload: Record<string, unknown> = {},
-) {
-  const response = await api.post(
-    "/recommendations/recipes",
-    payload,
-  );
+  payload: RecipeSuggestionRequest,
+): Promise<RecipeSuggestionResponse> {
+  const response =
+    await api.post<RecipeSuggestionResponse>(
+      "/recommendations/recipes",
+      payload,
+      {
+        timeout: 180000,
+      },
+    );
 
   return response.data;
 }

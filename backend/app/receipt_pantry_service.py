@@ -1031,6 +1031,15 @@ def process_receipt_into_pantry(
 
             db.flush()
 
+            # Every receipt-created pantry batch starts a pending,
+            # household-specific ML training sample.
+            from .ml import ensure_training_sample
+
+            ensure_training_sample(
+                db,
+                pantry_item,
+            )
+
             created_count += 1
 
             changes.append(

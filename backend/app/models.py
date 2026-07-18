@@ -20,7 +20,7 @@ from .database import Base
 
 
 def utc_now() -> datetime:
-    """Return the current UTC datetime."""
+    """Return the current timezone-aware UTC datetime."""
 
     return datetime.now(timezone.utc)
 
@@ -50,17 +50,38 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
-    email: Mapped[str] = mapped_column(String(254), unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
-    name: Mapped[str] = mapped_column(String(120))
+
+    email: Mapped[str] = mapped_column(
+        String(254),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    password_hash: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
     )
 
     memberships: Mapped[list["HouseholdMember"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
+        back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 
@@ -68,76 +89,229 @@ class Household(Base):
     __tablename__ = "households"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
-    name: Mapped[str] = mapped_column(String(120))
-    timezone: Mapped[str] = mapped_column(String(64), default="Asia/Karachi")
+
+    name: Mapped[str] = mapped_column(
+        String(120),
+        nullable=False,
+    )
+
+    timezone: Mapped[str] = mapped_column(
+        String(64),
+        default="Asia/Karachi",
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
     )
 
     members: Mapped[list["HouseholdMember"]] = relationship(
-        back_populates="household", cascade="all, delete-orphan"
+        back_populates="household",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
+
+    pantry_items: Mapped[list["PantryItem"]] = relationship(
+        back_populates="household",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    processed_receipts: Mapped[list["ProcessedReceipt"]] = relationship(
+        back_populates="household",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
     grocery_lists: Mapped[list["GroceryList"]] = relationship(
-        back_populates="household", cascade="all, delete-orphan"
+        back_populates="household",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    ml_training_samples: Mapped[list["MLTrainingSample"]] = relationship(
+        back_populates="household",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    household_model: Mapped["HouseholdModel | None"] = relationship(
+        back_populates="household",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
     )
 
 
 class HouseholdMember(Base):
     __tablename__ = "household_members"
+
     __table_args__ = (
-        UniqueConstraint("household_id", "user_id", name="uq_household_user"),
+        UniqueConstraint(
+            "household_id",
+            "user_id",
+            name="uq_household_user",
+        ),
     )
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
-    household_id: Mapped[str] = mapped_column(
-        ForeignKey("households.id"), index=True
-    )
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
-    role: Mapped[str] = mapped_column(String(24), default="owner")
 
-    household: Mapped[Household] = relationship(back_populates="members")
-    user: Mapped[User] = relationship(back_populates="memberships")
+    household_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "households.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "users.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    # The account that creates a household should explicitly be assigned
+    # role="owner". Accounts joining an existing household remain members.
+    role: Mapped[str] = mapped_column(
+        String(24),
+        default="member",
+        nullable=False,
+    )
+
+    household: Mapped["Household"] = relationship(
+        back_populates="members",
+    )
+
+    user: Mapped["User"] = relationship(
+        back_populates="memberships",
+    )
 
 
 class PantryItem(Base):
     __tablename__ = "pantry_items"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
+
+    # Every pantry item must belong to a real household.
+    # There is intentionally no "demo-household" default.
     household_id: Mapped[str] = mapped_column(
-        String(36), default="demo-household", index=True
+        String(36),
+        ForeignKey(
+            "households.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
     )
-    product_name: Mapped[str] = mapped_column(String(160), index=True)
-    category: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    quantity_initial: Mapped[float] = mapped_column(Float)
-    quantity_remaining: Mapped[float] = mapped_column(Float)
-    unit: Mapped[str] = mapped_column(String(32))
-    purchase_date: Mapped[date] = mapped_column(Date)
+
+    product_name: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+        index=True,
+    )
+
+    category: Mapped[str | None] = mapped_column(
+        String(80),
+        nullable=True,
+    )
+
+    quantity_initial: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    quantity_remaining: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+    )
+
+    unit: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+
+    purchase_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
     expiry_date: Mapped[date | None] = mapped_column(
-        Date, nullable=True, index=True
+        Date,
+        nullable=True,
+        index=True,
     )
+
     storage_location: Mapped[str | None] = mapped_column(
-        String(80), nullable=True
+        String(80),
+        nullable=True,
     )
-    price_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
-    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
+
+    price_amount: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    currency: Mapped[str | None] = mapped_column(
+        String(3),
+        nullable=True,
+    )
+
     status: Mapped[PantryStatus] = mapped_column(
-        Enum(PantryStatus), default=PantryStatus.active
+        Enum(PantryStatus),
+        default=PantryStatus.active,
+        nullable=False,
+        index=True,
     )
+
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
     )
+
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    household: Mapped["Household"] = relationship(
+        back_populates="pantry_items",
     )
 
     events: Mapped[list["InventoryEvent"]] = relationship(
-        back_populates="pantry_item", cascade="all, delete-orphan"
+        back_populates="pantry_item",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        order_by="InventoryEvent.occurred_at",
+    )
+
+    ml_training_sample: Mapped["MLTrainingSample | None"] = relationship(
+        back_populates="pantry_item",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
     )
 
 
@@ -145,26 +319,59 @@ class InventoryEvent(Base):
     __tablename__ = "inventory_events"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
-    pantry_item_id: Mapped[str] = mapped_column(
-        ForeignKey("pantry_items.id"), index=True
-    )
-    event_type: Mapped[EventType] = mapped_column(Enum(EventType))
-    quantity: Mapped[float | None] = mapped_column(Float, nullable=True)
-    occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
-    )
-    notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    previous_values: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    pantry_item: Mapped[PantryItem] = relationship(back_populates="events")
+    pantry_item_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "pantry_items.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    event_type: Mapped[EventType] = mapped_column(
+        Enum(EventType),
+        nullable=False,
+        index=True,
+    )
+
+    quantity: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    occurred_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+        index=True,
+    )
+
+    notes: Mapped[str | None] = mapped_column(
+        String(500),
+        nullable=True,
+    )
+
+    previous_values: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    pantry_item: Mapped["PantryItem"] = relationship(
+        back_populates="events",
+    )
 
 
 class ProcessedReceipt(Base):
-    """Stores a hash and metadata for each successfully processed receipt."""
+    """Stores hashes and metadata for successfully processed receipts."""
 
     __tablename__ = "processed_receipts"
+
     __table_args__ = (
         UniqueConstraint(
             "household_id",
@@ -174,24 +381,75 @@ class ProcessedReceipt(Base):
     )
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
+
     household_id: Mapped[str] = mapped_column(
-        ForeignKey("households.id"), index=True
+        String(36),
+        ForeignKey(
+            "households.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
     )
-    file_hash: Mapped[str] = mapped_column(String(64), index=True)
+
+    file_hash: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        index=True,
+    )
+
     original_filename: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
+        String(255),
+        nullable=True,
     )
-    content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    merchant_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
-    invoice_number: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    purchase_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    currency: Mapped[str | None] = mapped_column(String(3), nullable=True)
-    total_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
-    extracted_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    content_type: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+
+    merchant_name: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+    )
+
+    invoice_number: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+    )
+
+    purchase_date: Mapped[date | None] = mapped_column(
+        Date,
+        nullable=True,
+    )
+
+    currency: Mapped[str | None] = mapped_column(
+        String(3),
+        nullable=True,
+    )
+
+    total_amount: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    extracted_data: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
     processed_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    household: Mapped["Household"] = relationship(
+        back_populates="processed_receipts",
     )
 
 
@@ -201,47 +459,92 @@ class GroceryList(Base):
     __tablename__ = "grocery_lists"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    household_id: Mapped[str] = mapped_column(
-        ForeignKey("households.id"), index=True
-    )
-    coverage_days: Mapped[int] = mapped_column(Integer, default=7)
-    start_date: Mapped[date] = mapped_column(Date)
-    end_date: Mapped[date] = mapped_column(Date)
-    status: Mapped[GroceryListStatus] = mapped_column(
-        Enum(GroceryListStatus), default=GroceryListStatus.draft, index=True
-    )
-    generated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
-    )
-    completed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
 
-    household: Mapped[Household] = relationship(back_populates="grocery_lists")
+    household_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "households.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    coverage_days: Mapped[int] = mapped_column(
+        Integer,
+        default=7,
+        nullable=False,
+    )
+
+    start_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    end_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+
+    status: Mapped[GroceryListStatus] = mapped_column(
+        Enum(GroceryListStatus),
+        default=GroceryListStatus.draft,
+        nullable=False,
+        index=True,
+    )
+
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    household: Mapped["Household"] = relationship(
+        back_populates="grocery_lists",
+    )
+
     items: Mapped[list["GroceryListItem"]] = relationship(
         back_populates="grocery_list",
         cascade="all, delete-orphan",
+        passive_deletes=True,
         order_by="GroceryListItem.created_at",
     )
+
     meal_plans: Mapped[list["MealPlan"]] = relationship(
         back_populates="grocery_list",
         cascade="all, delete-orphan",
+        passive_deletes=True,
         order_by="MealPlan.created_at",
     )
 
 
 class GroceryListItem(Base):
-    """One editable, explainable item in a grocery list."""
+    """One editable and explainable item in a grocery list."""
 
     __tablename__ = "grocery_list_items"
+
     __table_args__ = (
         UniqueConstraint(
             "grocery_list_id",
@@ -252,40 +555,133 @@ class GroceryListItem(Base):
     )
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    grocery_list_id: Mapped[str] = mapped_column(
-        ForeignKey("grocery_lists.id"), index=True
-    )
-    product_name: Mapped[str] = mapped_column(String(160))
-    normalized_name: Mapped[str] = mapped_column(String(160), index=True)
-    category: Mapped[str | None] = mapped_column(String(80), nullable=True)
-    required_quantity: Mapped[float] = mapped_column(Float, default=0)
-    pantry_quantity: Mapped[float] = mapped_column(Float, default=0)
-    purchase_quantity: Mapped[float] = mapped_column(Float, default=0)
-    purchased_quantity: Mapped[float] = mapped_column(Float, default=0)
-    average_daily_consumption: Mapped[float | None] = mapped_column(
-        Float, nullable=True
-    )
-    estimated_days_remaining: Mapped[float | None] = mapped_column(
-        Float, nullable=True
-    )
-    unit: Mapped[str] = mapped_column(String(32))
-    priority: Mapped[str] = mapped_column(String(32), default="running_low")
-    source_type: Mapped[str] = mapped_column(String(32), default="consumption")
-    reason: Mapped[str | None] = mapped_column(String(700), nullable=True)
-    selected: Mapped[bool] = mapped_column(Boolean, default=True)
-    user_locked: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_purchased: Mapped[bool] = mapped_column(Boolean, default=False)
-    source_breakdown: Mapped[dict] = mapped_column(JSON, default=dict)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
 
-    grocery_list: Mapped[GroceryList] = relationship(back_populates="items")
+    grocery_list_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "grocery_lists.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    product_name: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+    )
+
+    normalized_name: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+        index=True,
+    )
+
+    category: Mapped[str | None] = mapped_column(
+        String(80),
+        nullable=True,
+    )
+
+    required_quantity: Mapped[float] = mapped_column(
+        Float,
+        default=0,
+        nullable=False,
+    )
+
+    pantry_quantity: Mapped[float] = mapped_column(
+        Float,
+        default=0,
+        nullable=False,
+    )
+
+    purchase_quantity: Mapped[float] = mapped_column(
+        Float,
+        default=0,
+        nullable=False,
+    )
+
+    purchased_quantity: Mapped[float] = mapped_column(
+        Float,
+        default=0,
+        nullable=False,
+    )
+
+    average_daily_consumption: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    estimated_days_remaining: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    unit: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+
+    priority: Mapped[str] = mapped_column(
+        String(32),
+        default="running_low",
+        nullable=False,
+    )
+
+    source_type: Mapped[str] = mapped_column(
+        String(32),
+        default="consumption",
+        nullable=False,
+    )
+
+    reason: Mapped[str | None] = mapped_column(
+        String(700),
+        nullable=True,
+    )
+
+    selected: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+    )
+
+    user_locked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    is_purchased: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    source_breakdown: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    grocery_list: Mapped["GroceryList"] = relationship(
+        back_populates="items",
+    )
 
 
 class MealPlan(Base):
@@ -294,20 +690,200 @@ class MealPlan(Base):
     __tablename__ = "meal_plans"
 
     id: Mapped[str] = mapped_column(
-        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
-    )
-    grocery_list_id: Mapped[str] = mapped_column(
-        ForeignKey("grocery_lists.id"), index=True
-    )
-    original_request: Mapped[str] = mapped_column(String(500))
-    dish_name: Mapped[str] = mapped_column(String(160))
-    servings: Mapped[int] = mapped_column(Integer, default=4)
-    times: Mapped[int] = mapped_column(Integer, default=1)
-    recipe_source: Mapped[str] = mapped_column(String(32), default="groq")
-    ingredients: Mapped[list] = mapped_column(JSON, default=list)
-    assumptions: Mapped[list] = mapped_column(JSON, default=list)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utc_now
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
     )
 
-    grocery_list: Mapped[GroceryList] = relationship(back_populates="meal_plans")
+    grocery_list_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey(
+            "grocery_lists.id",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+
+    original_request: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+    )
+
+    dish_name: Mapped[str] = mapped_column(
+        String(160),
+        nullable=False,
+    )
+
+    servings: Mapped[int] = mapped_column(
+        Integer,
+        default=4,
+        nullable=False,
+    )
+
+    times: Mapped[int] = mapped_column(
+        Integer,
+        default=1,
+        nullable=False,
+    )
+
+    recipe_source: Mapped[str] = mapped_column(
+        String(32),
+        default="groq",
+        nullable=False,
+    )
+
+    ingredients: Mapped[list] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+
+    assumptions: Mapped[list] = mapped_column(
+        JSON,
+        default=list,
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    grocery_list: Mapped["GroceryList"] = relationship(
+        back_populates="meal_plans",
+    )
+
+class MLTrainingSample(Base):
+    """One pantry item outcome used to train its household-specific model."""
+
+    __tablename__ = "ml_training_samples"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "pantry_item_id",
+            name="uq_ml_training_sample_pantry_item",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    household_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("households.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    pantry_item_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("pantry_items.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    product_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    storage_location: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    purchase_date: Mapped[date] = mapped_column(Date, nullable=False)
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    quantity_initial: Mapped[float] = mapped_column(Float, nullable=False)
+    quantity_remaining: Mapped[float] = mapped_column(Float, nullable=False)
+
+    feature_values: Mapped[dict] = mapped_column(
+        JSON,
+        default=dict,
+        nullable=False,
+    )
+
+    outcome: Mapped[str] = mapped_column(
+        String(32),
+        default="pending",
+        nullable=False,
+        index=True,
+    )
+
+    label: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        index=True,
+    )
+
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    household: Mapped["Household"] = relationship(
+        back_populates="ml_training_samples",
+    )
+
+    pantry_item: Mapped["PantryItem"] = relationship(
+        back_populates="ml_training_sample",
+    )
+
+
+class HouseholdModel(Base):
+    """Tracks the active personalized model for one household."""
+
+    __tablename__ = "household_models"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    household_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("households.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    version: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    artifact_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    total_family_samples: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    samples_at_last_training: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_trained_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    household: Mapped["Household"] = relationship(
+        back_populates="household_model",
+    )

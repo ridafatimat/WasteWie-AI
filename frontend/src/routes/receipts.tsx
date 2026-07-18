@@ -8,17 +8,23 @@ import {
 } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowRight,
   CalendarDays,
   CheckCircle2,
   FileImage,
   Loader2,
+  Package,
   PackageCheck,
   ReceiptText,
   RefreshCw,
+  ScanLine,
+  ShieldCheck,
+  Sparkles,
   Store,
   UploadCloud,
   WalletCards,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import {
   useEffect,
@@ -26,22 +32,17 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
+  type ReactNode,
 } from "react";
-import {
-  motion,
-} from "framer-motion";
+import { motion } from "framer-motion";
 import { toast } from "sonner";
 
 import { AppShell } from "@/components/AppShell";
 import { RequireAuth } from "@/components/RequireAuth";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  uploadReceipt,
-} from "@/services/api";
-import {
-  extractApiError,
-} from "@/services/api/client";
+import { uploadReceipt } from "@/services/api";
+import { extractApiError } from "@/services/api/client";
 import type {
   PantryReceiptChange,
   ReceiptItem,
@@ -117,8 +118,9 @@ function formatPackage(item: ReceiptItem) {
     l: "L",
   };
 
-  const unit = labels[item.package_unit]
-    ?? item.package_unit;
+  const unit =
+    labels[item.package_unit] ??
+    item.package_unit;
 
   return `${item.package_size} ${unit}`;
 }
@@ -141,9 +143,10 @@ function formatPurchasedQuantity(item: ReceiptItem) {
       "quart",
     ].includes(item.package_unit)
   ) {
-    const unit = item.package_unit === "fl_oz"
-      ? "fl oz"
-      : item.package_unit;
+    const unit =
+      item.package_unit === "fl_oz"
+        ? "fl oz"
+        : item.package_unit;
 
     return `${quantity} ${unit}`;
   }
@@ -169,7 +172,8 @@ function ReceiptsPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [result, setResult] = useState<ReceiptProcessResponse | null>(null);
+  const [result, setResult] =
+    useState<ReceiptProcessResponse | null>(null);
 
   useEffect(() => {
     return () => {
@@ -269,7 +273,8 @@ function ReceiptsPage() {
       return;
     }
 
-    const selectedFile = event.dataTransfer.files?.[0];
+    const selectedFile =
+      event.dataTransfer.files?.[0];
 
     if (selectedFile) {
       selectFile(selectedFile);
@@ -290,26 +295,82 @@ function ReceiptsPage() {
   return (
     <RequireAuth>
       <AppShell title="Receipt Upload">
-        <div className="mx-auto max-w-6xl space-y-6">
-          <section className="overflow-hidden rounded-3xl border border-border/60 bg-card shadow-sm">
-            <div className="grid lg:grid-cols-[1.05fr_0.95fr]">
-              <div className="p-5 sm:p-7 lg:p-8">
-                <div className="mb-6 max-w-2xl">
-                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
-                    <ReceiptText className="h-3.5 w-3.5" />
-                    Smart receipt processing
+        <div className="mx-auto max-w-7xl space-y-7">
+          <motion.section
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative overflow-hidden rounded-[28px] border border-primary/20 bg-card p-5 sm:p-7"
+          >
+            <div className="pointer-events-none absolute -right-24 -top-28 h-72 w-72 rounded-full bg-primary/15 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-32 left-1/3 h-64 w-64 rounded-full bg-fuchsia-500/10 blur-3xl" />
+
+            <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+              <div className="max-w-3xl">
+                <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  AI receipt scanner
+                </div>
+
+                <h2 className="mt-4 max-w-2xl text-2xl font-bold tracking-tight sm:text-4xl">
+                  Scan once. Stock your pantry automatically.
+                </h2>
+
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+                  Upload a clear receipt image. WasteWise reads the products,
+                  quantities, prices and dates, then creates separate pantry
+                  batches for you.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 sm:min-w-[430px]">
+                <ProcessStep
+                  number="01"
+                  icon={UploadCloud}
+                  label="Upload"
+                />
+                <ProcessStep
+                  number="02"
+                  icon={ScanLine}
+                  label="AI reads"
+                />
+                <ProcessStep
+                  number="03"
+                  icon={PackageCheck}
+                  label="Pantry updates"
+                />
+              </div>
+            </div>
+          </motion.section>
+
+          <motion.section
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="overflow-hidden rounded-[30px] border border-border/70 bg-card shadow-sm"
+          >
+            <div className="grid xl:grid-cols-[1.05fr_0.95fr]">
+              <div className="relative p-5 sm:p-7 lg:p-8">
+                <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">
+                      Upload receipt
+                    </p>
+                    <h3 className="mt-2 text-xl font-semibold sm:text-2xl">
+                      Add a new grocery purchase
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Use a sharp, well-lit image for the most accurate result.
+                    </p>
                   </div>
 
-                  <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
-                    Turn a receipt into accurate pantry batches
-                  </h2>
-
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground sm:text-base">
-                    WasteWise extracts generic pantry names, quantities,
-                    package information, prices, tax, and purchase dates.
-                    Every purchase is stored as its own batch, so its expiry
-                    date remains accurate.
-                  </p>
+                  <div className="flex flex-wrap gap-2 text-[11px] font-medium text-muted-foreground">
+                    <span className="rounded-full border border-border bg-background/50 px-2.5 py-1">
+                      JPG · PNG · WEBP
+                    </span>
+                    <span className="rounded-full border border-border bg-background/50 px-2.5 py-1">
+                      Max 10 MB
+                    </span>
+                  </div>
                 </div>
 
                 <input
@@ -337,64 +398,97 @@ function ReceiptsPage() {
                     setDragActive(false);
                   }}
                   onDrop={handleDrop}
+                  onClick={() => {
+                    if (!isProcessing) {
+                      inputRef.current?.click();
+                    }
+                  }}
                   className={cn(
-                    "relative rounded-2xl border-2 border-dashed p-6 text-center transition sm:p-9",
+                    "group relative cursor-pointer overflow-hidden rounded-[26px] border border-dashed p-6 text-center transition duration-300 sm:p-10",
                     dragActive
-                      ? "border-primary bg-primary/10"
-                      : "border-border bg-background/50 hover:border-primary/50 hover:bg-primary/5",
-                    isProcessing && "pointer-events-none opacity-70",
+                      ? "border-primary bg-primary/10 shadow-glow"
+                      : file
+                        ? "border-primary/35 bg-primary/[0.04]"
+                        : "border-border bg-background/35 hover:border-primary/45 hover:bg-primary/[0.04]",
+                    isProcessing &&
+                      "pointer-events-none cursor-default opacity-70",
                   )}
                 >
-                  <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-primary/10 text-primary">
-                    <UploadCloud className="h-7 w-7" />
+                  <div className="pointer-events-none absolute inset-x-16 top-0 h-24 rounded-full bg-primary/10 blur-3xl opacity-0 transition group-hover:opacity-100" />
+
+                  <div className="relative">
+                    <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-[0_0_40px_rgba(236,72,153,0.12)] transition duration-300 group-hover:-translate-y-1 group-hover:scale-105">
+                      {file ? (
+                        <FileImage className="h-7 w-7" />
+                      ) : (
+                        <UploadCloud className="h-7 w-7" />
+                      )}
+                    </div>
+
+                    <p className="mt-5 text-base font-semibold sm:text-lg">
+                      {file
+                        ? "Receipt ready to scan"
+                        : "Drop your receipt here"}
+                    </p>
+
+                    <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
+                      {file
+                        ? "You can replace it by dropping another image or choosing a new file."
+                        : "Drag and drop an image, or browse from your device."}
+                    </p>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="mt-5 rounded-xl bg-background/70"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        inputRef.current?.click();
+                      }}
+                      disabled={isProcessing}
+                    >
+                      <FileImage className="mr-2 h-4 w-4" />
+                      {file ? "Replace image" : "Choose image"}
+                    </Button>
                   </div>
-
-                  <p className="mt-4 font-semibold">
-                    Drag and drop your receipt here
-                  </p>
-
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    JPG, PNG or WEBP, up to 10 MB
-                  </p>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="mt-5"
-                    onClick={() => inputRef.current?.click()}
-                    disabled={isProcessing}
-                  >
-                    <FileImage className="mr-2 h-4 w-4" />
-                    Choose image
-                  </Button>
                 </div>
 
                 {file && (
-                  <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-background/50 p-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 flex items-center gap-3 rounded-2xl border border-border bg-background/45 p-3.5"
+                  >
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                      <FileImage className="h-5 w-5" />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">
                         {file.name}
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB · Ready
                       </p>
                     </div>
 
                     <Button
                       type="button"
-                      size="sm"
+                      size="icon"
                       variant="ghost"
+                      className="shrink-0 rounded-xl"
                       onClick={clearSelection}
                       disabled={isProcessing}
+                      aria-label="Remove selected receipt"
                     >
                       <X className="h-4 w-4" />
                     </Button>
-                  </div>
+                  </motion.div>
                 )}
 
                 <Button
                   type="button"
-                  className="mt-5 w-full bg-gradient-pink text-white shadow-glow"
+                  className="mt-5 h-12 w-full rounded-xl bg-gradient-pink text-white shadow-glow transition hover:-translate-y-0.5"
                   onClick={handleProcess}
                   disabled={!file || isProcessing}
                 >
@@ -405,16 +499,22 @@ function ReceiptsPage() {
                     </>
                   ) : (
                     <>
-                      <PackageCheck className="mr-2 h-4 w-4" />
+                      <ScanLine className="mr-2 h-4 w-4" />
                       Scan and add to pantry
+                      <ArrowRight className="ml-2 h-4 w-4" />
                     </>
                   )}
                 </Button>
 
                 {isProcessing && (
-                  <div className="mt-4 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-primary">
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="mt-4 overflow-hidden rounded-2xl border border-primary/25 bg-primary/[0.05] p-4"
+                  >
+                    <div className="flex items-center justify-between gap-3 text-xs">
+                      <span className="flex items-center gap-2 font-semibold text-primary">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         Processing receipt
                       </span>
                       <span className="text-muted-foreground">
@@ -423,65 +523,171 @@ function ReceiptsPage() {
                           : "AI analysis in progress"}
                       </span>
                     </div>
-                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
+
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-background/80">
                       <motion.div
-                        className="h-full rounded-full bg-primary"
+                        className="h-full rounded-full bg-gradient-pink"
                         animate={{
-                          width: uploadProgress < 100
-                            ? `${uploadProgress}%`
-                            : "100%",
+                          width:
+                            uploadProgress < 100
+                              ? `${uploadProgress}%`
+                              : "100%",
                         }}
+                        transition={{ duration: 0.25 }}
                       />
                     </div>
+
                     <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                      AI extraction can take up to a couple of minutes for
-                      detailed receipts. Keep this page open.
+                      Detailed receipts may take a little longer. Keep this
+                      page open while WasteWise creates the pantry batches.
                     </p>
-                  </div>
+                  </motion.div>
                 )}
+
+                <div className="mt-5 grid gap-2 sm:grid-cols-3">
+                  <TrustItem
+                    icon={ShieldCheck}
+                    label="Validated file"
+                  />
+                  <TrustItem
+                    icon={ScanLine}
+                    label="AI extraction"
+                  />
+                  <TrustItem
+                    icon={PackageCheck}
+                    label="Auto pantry sync"
+                  />
+                </div>
               </div>
 
-              <div className="border-t border-border/60 bg-background/40 p-5 sm:p-7 lg:border-l lg:border-t-0 lg:p-8">
+              <div className="border-t border-border/60 bg-background/35 p-5 sm:p-7 lg:p-8 xl:border-l xl:border-t-0">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                      Live preview
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Confirm the image is clear before scanning.
+                    </p>
+                  </div>
+
+                  <span
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-[11px] font-semibold",
+                      previewUrl
+                        ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-500"
+                        : "border-border bg-card text-muted-foreground",
+                    )}
+                  >
+                    {previewUrl ? "Image selected" : "Waiting for image"}
+                  </span>
+                </div>
+
                 {previewUrl ? (
-                  <div className="overflow-hidden rounded-2xl border border-border bg-black/10">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.98 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="relative overflow-hidden rounded-[26px] border border-border bg-black/20"
+                  >
+                    <div className="absolute left-4 top-4 z-10 rounded-full border border-white/10 bg-black/60 px-3 py-1 text-[11px] font-medium text-white backdrop-blur">
+                      Receipt preview
+                    </div>
                     <img
                       src={previewUrl}
                       alt="Receipt preview"
-                      className="max-h-[560px] w-full object-contain"
+                      className="max-h-[610px] min-h-[420px] w-full object-contain"
                     />
-                  </div>
+                  </motion.div>
                 ) : (
-                  <div className="grid min-h-[360px] place-items-center rounded-2xl border border-dashed border-border bg-card/40 p-8 text-center">
-                    <div>
-                      <FileImage className="mx-auto h-10 w-10 text-muted-foreground" />
-                      <p className="mt-3 font-medium">
-                        Receipt preview
+                  <div className="relative grid min-h-[500px] place-items-center overflow-hidden rounded-[26px] border border-dashed border-border bg-card/35 p-8 text-center">
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(236,72,153,0.08),transparent_56%)]" />
+                    <div className="relative max-w-xs">
+                      <div className="mx-auto grid h-20 w-20 place-items-center rounded-3xl border border-border bg-background/70 text-muted-foreground shadow-sm">
+                        <ReceiptText className="h-9 w-9" />
+                      </div>
+                      <p className="mt-5 text-lg font-semibold">
+                        Your receipt will appear here
                       </p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Your selected receipt image will appear here.
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        Select a JPG, PNG or WEBP image to preview it before
+                        processing.
                       </p>
                     </div>
                   </div>
                 )}
               </div>
             </div>
-          </section>
+          </motion.section>
 
           {result && (
-            <section className="space-y-5">
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-5"
+            >
+              <div className="relative overflow-hidden rounded-[26px] border border-emerald-500/25 bg-emerald-500/[0.06] p-5 sm:p-6">
+                <div className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-emerald-500/10 blur-3xl" />
+                <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-start gap-3">
+                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-emerald-500/15 text-emerald-500">
+                      <CheckCircle2 className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold sm:text-lg">
+                        Receipt processed successfully
+                      </h3>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {result.summary.items_created} new batch{result.summary.items_created === 1 ? "" : "es"} added
+                        {result.summary.items_skipped > 0
+                          ? ` · ${result.summary.items_skipped} skipped`
+                          : ""}.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <Button asChild className="rounded-xl bg-gradient-pink text-white">
+                      <Link to="/pantry">
+                        Open Smart Pantry
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Link>
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="rounded-xl"
+                      onClick={clearSelection}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Scan another
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <SummaryCard
                   icon={Store}
                   label="Merchant"
-                  value={result.receipt.merchant_name ?? "Unknown merchant"}
+                  value={
+                    result.receipt.merchant_name ??
+                    "Unknown merchant"
+                  }
+                  tone="primary"
                 />
                 <SummaryCard
                   icon={CalendarDays}
                   label="Purchase date"
-                  value={formatDate(result.receipt.purchase_date)}
-                  note={result.receipt.purchase_date_source === "upload_date"
-                    ? "Upload date used"
-                    : "Read from receipt"}
+                  value={formatDate(
+                    result.receipt.purchase_date,
+                  )}
+                  note={
+                    result.receipt.purchase_date_source ===
+                    "upload_date"
+                      ? "Upload date used"
+                      : "Read from receipt"
+                  }
+                  tone="default"
                 />
                 <SummaryCard
                   icon={WalletCards}
@@ -490,68 +696,87 @@ function ReceiptsPage() {
                     result.receipt.total_amount,
                     result.receipt.currency,
                   )}
+                  tone="warning"
                 />
                 <SummaryCard
                   icon={PackageCheck}
                   label="New batches"
                   value={`${result.summary.items_created}`}
                   note={`${result.summary.items_skipped} skipped`}
+                  tone="success"
                 />
               </div>
 
-              <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-                <div className="rounded-3xl border border-border bg-card p-5 sm:p-6">
-                  <div className="flex items-center justify-between gap-3">
+              <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(340px,0.8fr)]">
+                <div className="rounded-[28px] border border-border bg-card p-5 sm:p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <h3 className="font-semibold">
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
+                        Receipt contents
+                      </p>
+                      <h3 className="mt-2 text-lg font-semibold">
                         Extracted products
                       </h3>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Generic pantry names are shown first; the branded
-                        receipt name remains available underneath.
+                      <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
+                        Pantry-friendly names are shown first. The original
+                        receipt name stays visible underneath for reference.
                       </p>
                     </div>
-                    <ReceiptText className="h-5 w-5 text-primary" />
+                    <div className="rounded-2xl bg-primary/10 p-3 text-primary">
+                      <ReceiptText className="h-5 w-5" />
+                    </div>
                   </div>
 
-                  <div className="mt-4 space-y-3">
+                  <div className="mt-5 grid gap-3 lg:grid-cols-2">
                     {result.receipt.items.map((item, index) => (
-                      <div
+                      <motion.article
                         key={`${item.raw_name}-${index}`}
-                        className="rounded-2xl border border-border/70 bg-background/40 p-4"
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: Math.min(index * 0.03, 0.24) }}
+                        className="rounded-2xl border border-border/70 bg-background/35 p-4 transition hover:border-primary/30"
                       >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="font-semibold">
-                              {item.pantry_name ?? item.product_name}
-                            </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              Receipt: {item.product_name}
-                            </p>
+                        <div className="flex items-start gap-3">
+                          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                            <Package className="h-[18px] w-[18px]" />
                           </div>
-                          <p className="font-medium tabular-nums">
-                            {formatMoney(
-                              item.line_total,
-                              result.receipt.currency,
-                            )}
-                          </p>
-                        </div>
 
-                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-                          <span className="rounded-full bg-muted px-2.5 py-1">
-                            Qty {formatPurchasedQuantity(item)}
-                          </span>
-                          <span className="rounded-full bg-muted px-2.5 py-1">
-                            {formatPackage(item)}
-                          </span>
-                          <span className="rounded-full bg-muted px-2.5 py-1 capitalize">
-                            {item.category}
-                          </span>
-                          <span className="rounded-full bg-muted px-2.5 py-1 capitalize">
-                            {item.location}
-                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold">
+                                  {item.pantry_name ??
+                                    item.product_name}
+                                </p>
+                                <p className="mt-1 truncate text-xs text-muted-foreground">
+                                  Receipt: {item.product_name}
+                                </p>
+                              </div>
+                              <p className="shrink-0 text-sm font-semibold tabular-nums">
+                                {formatMoney(
+                                  item.line_total,
+                                  result.receipt.currency,
+                                )}
+                              </p>
+                            </div>
+
+                            <div className="mt-3 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                              <InfoPill>
+                                Qty {formatPurchasedQuantity(item)}
+                              </InfoPill>
+                              <InfoPill>
+                                {formatPackage(item)}
+                              </InfoPill>
+                              <InfoPill className="capitalize">
+                                {item.category}
+                              </InfoPill>
+                              <InfoPill className="capitalize">
+                                {item.location}
+                              </InfoPill>
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      </motion.article>
                     ))}
                   </div>
                 </div>
@@ -559,42 +784,54 @@ function ReceiptsPage() {
                 <div className="space-y-5">
                   <FinancialCard result={result} />
 
-                  <div className="rounded-3xl border border-border bg-card p-5 sm:p-6">
-                    <div className="flex items-center justify-between gap-3">
+                  <div className="rounded-[28px] border border-border bg-card p-5 sm:p-6">
+                    <div className="flex items-start justify-between gap-4">
                       <div>
-                        <h3 className="font-semibold">
-                          Pantry batches created
+                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
+                          Pantry sync
+                        </p>
+                        <h3 className="mt-2 font-semibold">
+                          Batches created
                         </h3>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Each entry keeps its own purchase and expiry date.
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          Every purchase keeps its own quantity, purchase date
+                          and expiry date.
                         </p>
                       </div>
-                      <PackageCheck className="h-5 w-5 text-primary" />
+                      <div className="rounded-2xl bg-primary/10 p-3 text-primary">
+                        <PackageCheck className="h-5 w-5" />
+                      </div>
                     </div>
 
-                    <div className="mt-4 space-y-3">
+                    <div className="mt-5 max-h-[520px] space-y-3 overflow-y-auto pr-1">
                       {result.pantry_changes.map((change, index) => (
                         <div
-                          key={`${change.pantry_item_id ?? change.product_name}-${index}`}
-                          className="rounded-2xl border border-border/70 bg-background/40 p-4"
+                          key={`${
+                            change.pantry_item_id ??
+                            change.product_name
+                          }-${index}`}
+                          className="rounded-2xl border border-border/70 bg-background/35 p-4"
                         >
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-medium">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold">
                                 {change.product_name}
                               </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
                                 {formatChangeQuantity(change)} · Expires {formatDate(change.expiry_date)}
                               </p>
                             </div>
-                            <span className={cn(
-                              "rounded-full px-2.5 py-1 text-[11px] font-semibold",
-                              change.action === "created"
-                                ? "bg-emerald-500/10 text-emerald-500"
-                                : change.action === "skipped"
-                                  ? "bg-amber-500/10 text-amber-500"
-                                  : "bg-primary/10 text-primary",
-                            )}>
+
+                            <span
+                              className={cn(
+                                "shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold capitalize",
+                                change.action === "created"
+                                  ? "bg-emerald-500/10 text-emerald-500"
+                                  : change.action === "skipped"
+                                    ? "bg-amber-500/10 text-amber-500"
+                                    : "bg-primary/10 text-primary",
+                              )}
+                            >
                               {change.action === "created"
                                 ? "New batch"
                                 : change.action}
@@ -605,14 +842,19 @@ function ReceiptsPage() {
                     </div>
 
                     <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                      <Button asChild className="bg-gradient-pink text-white">
+                      <Button
+                        asChild
+                        className="rounded-xl bg-gradient-pink text-white"
+                      >
                         <Link to="/pantry">
                           Open Smart Pantry
+                          <ArrowRight className="ml-2 h-4 w-4" />
                         </Link>
                       </Button>
                       <Button
                         type="button"
                         variant="outline"
+                        className="rounded-xl"
                         onClick={clearSelection}
                       >
                         <RefreshCw className="mr-2 h-4 w-4" />
@@ -622,11 +864,52 @@ function ReceiptsPage() {
                   </div>
                 </div>
               </div>
-            </section>
+            </motion.section>
           )}
         </div>
       </AppShell>
     </RequireAuth>
+  );
+}
+
+function ProcessStep({
+  number,
+  icon: Icon,
+  label,
+}: {
+  number: string;
+  icon: LucideIcon;
+  label: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-background/40 p-3 backdrop-blur-sm">
+      <div className="flex items-center justify-between gap-2">
+        <div className="grid h-8 w-8 place-items-center rounded-xl bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        <span className="text-[10px] font-bold tracking-widest text-muted-foreground/70">
+          {number}
+        </span>
+      </div>
+      <p className="mt-3 text-xs font-semibold sm:text-sm">
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function TrustItem({
+  icon: Icon,
+  label,
+}: {
+  icon: LucideIcon;
+  label: string;
+}) {
+  return (
+    <div className="flex items-center justify-center gap-2 rounded-xl border border-border/70 bg-background/35 px-3 py-2.5 text-xs text-muted-foreground">
+      <Icon className="h-3.5 w-3.5 text-primary" />
+      {label}
+    </div>
   );
 }
 
@@ -635,27 +918,71 @@ function SummaryCard({
   label,
   value,
   note,
+  tone,
 }: {
-  icon: typeof Store;
+  icon: LucideIcon;
   label: string;
   value: string;
   note?: string;
+  tone: "default" | "primary" | "warning" | "success";
+}) {
+  const toneClasses =
+    tone === "primary"
+      ? "bg-primary/10 text-primary"
+      : tone === "warning"
+        ? "bg-amber-500/10 text-amber-500"
+        : tone === "success"
+          ? "bg-emerald-500/10 text-emerald-500"
+          : "bg-card-elevated text-foreground";
+
+  return (
+    <motion.div
+      whileHover={{ y: -3 }}
+      className="rounded-2xl border border-border bg-card p-4 transition hover:border-primary/25 sm:p-5"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-3 truncate text-lg font-semibold">
+            {value}
+          </p>
+          {note && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {note}
+            </p>
+          )}
+        </div>
+        <div
+          className={cn(
+            "grid h-10 w-10 shrink-0 place-items-center rounded-xl",
+            toneClasses,
+          )}
+        >
+          <Icon className="h-[18px] w-[18px]" />
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function InfoPill({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-        <Icon className="h-4 w-4 text-primary" />
-        {label}
-      </div>
-      <p className="mt-3 truncate text-lg font-semibold">
-        {value}
-      </p>
-      {note && (
-        <p className="mt-1 text-xs text-muted-foreground">
-          {note}
-        </p>
+    <span
+      className={cn(
+        "rounded-full border border-border/70 bg-card px-2.5 py-1",
+        className,
       )}
-    </div>
+    >
+      {children}
+    </span>
   );
 }
 
@@ -665,33 +992,45 @@ function FinancialCard({
   result: ReceiptProcessResponse;
 }) {
   const validation = result.financial_validation;
-  const reconciled = validation.status === "reconciled";
-  const unavailable = validation.status === "unavailable";
+  const reconciled =
+    validation.status === "reconciled";
+  const unavailable =
+    validation.status === "unavailable";
 
   return (
-    <div className="rounded-3xl border border-border bg-card p-5 sm:p-6">
+    <div className="rounded-[28px] border border-border bg-card p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="font-semibold">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Validation
+          </p>
+          <h3 className="mt-2 font-semibold">
             Financial check
           </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Product lines, tax, charges and receipt total.
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            Product lines, tax, charges and the receipt total are compared.
           </p>
         </div>
-        {reconciled ? (
-          <CheckCircle2 className="h-6 w-6 text-emerald-500" />
-        ) : (
-          <AlertTriangle className={cn(
-            "h-6 w-6",
-            unavailable
-              ? "text-muted-foreground"
-              : "text-amber-500",
-          )} />
-        )}
+
+        <div
+          className={cn(
+            "grid h-11 w-11 shrink-0 place-items-center rounded-2xl",
+            reconciled
+              ? "bg-emerald-500/10 text-emerald-500"
+              : unavailable
+                ? "bg-muted text-muted-foreground"
+                : "bg-amber-500/10 text-amber-500",
+          )}
+        >
+          {reconciled ? (
+            <CheckCircle2 className="h-5 w-5" />
+          ) : (
+            <AlertTriangle className="h-5 w-5" />
+          )}
+        </div>
       </div>
 
-      <div className="mt-5 space-y-3 text-sm">
+      <div className="mt-5 overflow-hidden rounded-2xl border border-border/70 bg-background/35">
         <MoneyRow
           label="Items subtotal"
           value={formatMoney(
@@ -720,19 +1059,22 @@ function FinancialCard({
             result.receipt.currency,
           )}
           strong
+          last
         />
       </div>
 
-      <div className={cn(
-        "mt-5 rounded-xl border p-3 text-xs leading-5",
-        reconciled
-          ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-500"
-          : unavailable
-            ? "border-border bg-muted/40 text-muted-foreground"
-            : "border-amber-500/20 bg-amber-500/5 text-amber-500",
-      )}>
-        {validation.notes[0]
-          ?? "No financial validation note was returned."}
+      <div
+        className={cn(
+          "mt-4 rounded-2xl border p-3.5 text-xs leading-5",
+          reconciled
+            ? "border-emerald-500/20 bg-emerald-500/[0.05] text-emerald-500"
+            : unavailable
+              ? "border-border bg-muted/30 text-muted-foreground"
+              : "border-amber-500/20 bg-amber-500/[0.05] text-amber-500",
+        )}
+      >
+        {validation.notes[0] ??
+          "No financial validation note was returned."}
       </div>
     </div>
   );
@@ -742,20 +1084,30 @@ function MoneyRow({
   label,
   value,
   strong = false,
+  last = false,
 }: {
   label: string;
   value: string;
   strong?: boolean;
+  last?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div
+      className={cn(
+        "flex items-center justify-between gap-4 px-4 py-3 text-sm",
+        !last && "border-b border-border/70",
+        strong && "bg-card/60",
+      )}
+    >
       <span className="text-muted-foreground">
         {label}
       </span>
-      <span className={cn(
-        "tabular-nums",
-        strong && "font-semibold text-foreground",
-      )}>
+      <span
+        className={cn(
+          "tabular-nums",
+          strong && "font-semibold text-foreground",
+        )}
+      >
         {value}
       </span>
     </div>

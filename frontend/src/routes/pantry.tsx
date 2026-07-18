@@ -8,11 +8,12 @@ import {
 import {
   useMemo,
   useState,
+  type ReactNode,
 } from "react";
 import {
-  AlertTriangle,
   Archive,
   CalendarDays,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Clock3,
@@ -22,12 +23,16 @@ import {
   Package,
   Plus,
   Refrigerator,
+  RotateCcw,
   Search,
+  SlidersHorizontal,
   Snowflake,
+  Sparkles,
   Trash2,
   Warehouse,
 } from "lucide-react";
 import {
+  AnimatePresence,
   motion,
 } from "framer-motion";
 import { toast } from "sonner";
@@ -109,8 +114,7 @@ const LOCATIONS = [
 
 type ExpiryFilter =
   | "all"
-  | "expiring"
-  | "expired";
+  | "expiring";
 
 type PantryGroup = {
   key: string;
@@ -121,7 +125,6 @@ type PantryGroup = {
   earliestExpiry: string | null;
   latestPurchase: string | null;
   quantitySummary: string;
-  expiredBatchCount: number;
   expiringBatchCount: number;
 };
 
@@ -304,6 +307,23 @@ function quantityOf(item: PantryItem) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function isVisiblePantryItem(item: PantryItem) {
+  const status = (item.status || "")
+    .trim()
+    .toLowerCase();
+  const expiryDays = daysUntil(item.expiry_date);
+
+  const isConsumed =
+    status === "consumed"
+    || quantityOf(item) <= 0;
+
+  const isExpired =
+    status === "expired"
+    || (expiryDays !== null && expiryDays < 0);
+
+  return !isConsumed && !isExpired;
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 2,
@@ -411,13 +431,6 @@ function buildGroups(items: PantryItem[]) {
             ),
       );
 
-      const expiredBatchCount = sortedBatches.filter(
-        (batch) => {
-          const days = daysUntil(batch.expiry_date);
-          return days !== null && days < 0;
-        },
-      ).length;
-
       const expiringBatchCount = sortedBatches.filter(
         (batch) => {
           const days = daysUntil(batch.expiry_date);
@@ -448,7 +461,6 @@ function buildGroups(items: PantryItem[]) {
           sortedBatches.map((item) => item.purchase_date),
         ),
         quantitySummary: summarizeQuantities(sortedBatches),
-        expiredBatchCount,
         expiringBatchCount,
       };
     },
@@ -477,7 +489,12 @@ function PantryView() {
   const [sort, setSort] = useState("expiry");
   const [expiryFilter, setExpiryFilter] = useState<ExpiryFilter>("all");
 
-  const items = query.data ?? [];
+  const allReturnedItems = query.data ?? [];
+
+  const items = useMemo(
+    () => allReturnedItems.filter(isVisiblePantryItem),
+    [allReturnedItems],
+  );
 
   const statuses = useMemo(
     () => Array.from(
@@ -526,12 +543,6 @@ function PantryView() {
       );
     }
 
-    if (expiryFilter === "expired") {
-      output = output.filter(
-        (group) => group.expiredBatchCount > 0,
-      );
-    }
-
     if (expiryFilter === "expiring") {
       output = output.filter(
         (group) => group.expiringBatchCount > 0,
@@ -576,15 +587,37 @@ function PantryView() {
     [items],
   );
 
-  const expiredBatches = items.filter((item) => {
-    const days = daysUntil(item.expiry_date);
-    return days !== null && days < 0;
-  }).length;
-
   const expiringBatches = items.filter((item) => {
     const days = daysUntil(item.expiry_date);
     return days !== null && days >= 0 && days <= 3;
   }).length;
+
+  const expiringGroups = allGroups.filter(
+    (group) => group.expiringBatchCount > 0,
+  ).length;
+
+  const activeStorageAreas = new Set(
+    items
+      .map((item) => item.storage_location)
+      .filter(Boolean),
+  ).size;
+
+  const hasActiveFilters =
+    Boolean(search.trim())
+    || category !== "all"
+    || location !== "all"
+    || status !== "all"
+    || sort !== "expiry"
+    || expiryFilter !== "all";
+
+  const resetFilters = () => {
+    setSearch("");
+    setCategory("all");
+    setLocation("all");
+    setStatus("all");
+    setSort("expiry");
+    setExpiryFilter("all");
+  };
 
   const toggleGroup = (key: string) => {
     setExpandedGroups((current) => {
@@ -616,95 +649,146 @@ function PantryView() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-            Products are grouped for easy reading. Open a product to see
-            its individual purchase batches, quantities and expiry dates.
-          </p>
-        </div>
+    <div className="mx-auto max-w-[1500px] space-y-6 pb-8">
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="relative overflow-hidden rounded-[30px] border border-primary/20 bg-gradient-to-br from-primary/15 via-card to-card p-5 sm:p-7"
+      >
+        <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-primary/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 left-1/3 h-48 w-48 rounded-full bg-primary/5 blur-3xl" />
 
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setDialogOpen(true);
-          }}
-          className="bg-gradient-pink text-white shadow-glow"
-        >
-          <Plus className="mr-1.5 h-4 w-4" />
-          Add pantry item
-        </Button>
-      </div>
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary">
+              <Sparkles className="h-3.5 w-3.5" />
+              Pantry command centre
+            </div>
+
+            <h2 className="text-2xl font-bold tracking-tight sm:text-3xl">
+              Everything in your pantry,
+              <span className="text-primary"> beautifully organised.</span>
+            </h2>
+
+            <p className="mt-3 max-w-xl text-sm leading-6 text-muted-foreground">
+              Products stay grouped by name, while every purchase batch keeps
+              its own quantity, storage and expiry details. Consumed and expired
+              batches remain automatically hidden.
+            </p>
+          </div>
+
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setDialogOpen(true);
+            }}
+            size="lg"
+            className="h-12 rounded-2xl bg-gradient-pink px-5 text-white shadow-glow transition hover:-translate-y-0.5"
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add pantry item
+          </Button>
+        </div>
+      </motion.section>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           icon={Package}
-          label="Products"
+          label="Active products"
           value={allGroups.length}
-          note={`${items.length} individual batches`}
+          note={`${items.length} individual active batches`}
+          delay={0}
         />
         <StatCard
           icon={Layers3}
-          label="Batches"
+          label="Active batches"
           value={items.length}
-          note="Purchase dates kept separate"
+          note="Consumed and expired are hidden"
+          delay={0.04}
         />
         <StatCard
           icon={Clock3}
           label="Expiring soon"
           value={expiringBatches}
-          note="Within the next 3 days"
+          note={`${expiringGroups} products within 3 days`}
           tone="warning"
+          delay={0.08}
         />
         <StatCard
-          icon={AlertTriangle}
-          label="Expired"
-          value={expiredBatches}
-          note="Needs review"
-          tone="danger"
+          icon={Archive}
+          label="Storage areas"
+          value={activeStorageAreas}
+          note="Locations holding active stock"
+          delay={0.12}
         />
       </div>
 
-      <div className="rounded-3xl border border-border bg-card p-4 sm:p-5">
-        <div className="flex flex-wrap gap-2 border-b border-border/70 pb-4">
-          <FilterTab
-            active={expiryFilter === "all"}
-            onClick={() => setExpiryFilter("all")}
-            label="All products"
-            count={allGroups.length}
-          />
-          <FilterTab
-            active={expiryFilter === "expiring"}
-            onClick={() => setExpiryFilter("expiring")}
-            label="Expiring soon"
-            count={allGroups.filter((group) =>
-              group.expiringBatchCount > 0
-            ).length}
-          />
-          <FilterTab
-            active={expiryFilter === "expired"}
-            onClick={() => setExpiryFilter("expired")}
-            label="Expired"
-            count={allGroups.filter((group) =>
-              group.expiredBatchCount > 0
-            ).length}
-          />
+      {query.error && (
+        <ErrorMessage
+          message={extractApiError(query.error)}
+          onRetry={() => query.refetch()}
+        />
+      )}
+
+      <motion.section
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08 }}
+        className="rounded-[28px] border border-border bg-card/70 p-4 shadow-sm backdrop-blur sm:p-5"
+      >
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="inline-flex w-full rounded-2xl border border-border bg-background/60 p-1 sm:w-auto">
+            <FilterTab
+              active={expiryFilter === "all"}
+              onClick={() => setExpiryFilter("all")}
+              label="All active"
+              count={allGroups.length}
+            />
+            <FilterTab
+              active={expiryFilter === "expiring"}
+              onClick={() => setExpiryFilter("expiring")}
+              label="Expiring soon"
+              count={expiringGroups}
+              urgent
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <SlidersHorizontal className="h-4 w-4" />
+              <span>
+                {groups.length} product{groups.length === 1 ? "" : "s"} shown
+              </span>
+            </div>
+
+            {hasActiveFilters && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={resetFilters}
+                className="rounded-xl text-muted-foreground hover:text-primary"
+              >
+                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                Reset
+              </Button>
+            )}
+          </div>
         </div>
 
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <div className="relative sm:col-span-2 xl:col-span-2">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div className="relative md:col-span-2 xl:col-span-2">
+            <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search products or receipt names…"
-              className="pl-9"
+              className="h-11 rounded-2xl border-border bg-background/60 pl-10"
             />
           </div>
 
           <Select value={category} onValueChange={setCategory}>
-            <SelectTrigger>
+            <SelectTrigger className="h-11 rounded-2xl bg-background/60">
               <SelectValue placeholder="Category" />
             </SelectTrigger>
             <SelectContent>
@@ -720,7 +804,7 @@ function PantryView() {
           </Select>
 
           <Select value={location} onValueChange={setLocation}>
-            <SelectTrigger>
+            <SelectTrigger className="h-11 rounded-2xl bg-background/60">
               <SelectValue placeholder="Storage" />
             </SelectTrigger>
             <SelectContent>
@@ -736,12 +820,12 @@ function PantryView() {
           </Select>
 
           <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger>
+            <SelectTrigger className="h-11 rounded-2xl bg-background/60">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">
-                All statuses
+                All active statuses
               </SelectItem>
               {statuses.map((value) => (
                 <SelectItem key={value} value={value}>
@@ -752,7 +836,7 @@ function PantryView() {
           </Select>
 
           <Select value={sort} onValueChange={setSort}>
-            <SelectTrigger>
+            <SelectTrigger className="h-11 rounded-2xl bg-background/60">
               <SelectValue placeholder="Sort" />
             </SelectTrigger>
             <SelectContent>
@@ -771,34 +855,20 @@ function PantryView() {
             </SelectContent>
           </Select>
         </div>
-      </div>
+      </motion.section>
 
-      {query.isLoading && (
-        <div className="grid gap-3">
-          {[0, 1, 2, 3].map((index) => (
-            <div
-              key={index}
-              className="h-28 animate-pulse rounded-3xl border border-border bg-card/60"
-            />
-          ))}
-        </div>
-      )}
-
-      {query.error && (
-        <ErrorMessage
-          message={extractApiError(query.error)}
-          onRetry={() => query.refetch()}
-        />
-      )}
+      {query.isLoading && <SkeletonGrid />}
 
       {!query.isLoading && !query.error && groups.length === 0 && (
         <EmptyState
           icon={Package}
-          title="No pantry products"
+          title="No active pantry products"
           description={
             items.length === 0
-              ? "Add an item manually or scan a receipt to create your first pantry batch."
-              : "No products match the current search and filters."
+              ? allReturnedItems.length > 0
+                ? "All recorded batches are consumed or expired, so they are hidden from the active pantry."
+                : "Add an item manually or scan a receipt to create your first pantry batch."
+              : "No active products match the current search and filters."
           }
           action={
             items.length === 0 ? (
@@ -807,10 +877,19 @@ function PantryView() {
                   setEditing(null);
                   setDialogOpen(true);
                 }}
-                className="bg-gradient-pink text-white"
+                className="rounded-xl bg-gradient-pink text-white"
               >
                 <Plus className="mr-1.5 h-4 w-4" />
                 Add pantry item
+              </Button>
+            ) : hasActiveFilters ? (
+              <Button
+                onClick={resetFilters}
+                variant="outline"
+                className="rounded-xl"
+              >
+                <RotateCcw className="mr-1.5 h-4 w-4" />
+                Clear filters
               </Button>
             ) : undefined
           }
@@ -818,8 +897,11 @@ function PantryView() {
       )}
 
       {groups.length > 0 && (
-        <div className="grid gap-3">
-          {groups.map((group) => {
+        <motion.div
+          layout
+          className="grid items-start gap-4 xl:grid-cols-2"
+        >
+          {groups.map((group, index) => {
             const expanded = expandedGroups.has(group.key);
             const expiry = getExpiryPresentation(
               group.earliestExpiry,
@@ -829,189 +911,240 @@ function PantryView() {
               <motion.article
                 key={group.key}
                 layout
-                className="overflow-hidden rounded-3xl border border-border bg-card shadow-sm"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: 0.25,
+                  delay: Math.min(index * 0.025, 0.2),
+                }}
+                className={cn(
+                  "group overflow-hidden rounded-[26px] border bg-card transition duration-300",
+                  expanded
+                    ? "border-primary/35 shadow-glow"
+                    : "border-border hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg",
+                )}
               >
                 <button
                   type="button"
                   onClick={() => toggleGroup(group.key)}
-                  className="grid w-full gap-4 p-4 text-left transition hover:bg-muted/25 sm:p-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.75fr)_auto] lg:items-center"
+                  aria-expanded={expanded}
+                  className="w-full p-5 text-left sm:p-6"
                 >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-primary/10 text-primary">
+                  <div className="flex items-start gap-4">
+                    <div className="relative grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-primary/15 bg-primary/10 text-primary transition duration-300 group-hover:scale-105 group-hover:bg-primary/15">
                       <Package className="h-5 w-5" />
+                      {group.expiringBatchCount > 0 && (
+                        <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-card bg-warning" />
+                      )}
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="truncate font-semibold">
-                          {group.name}
-                        </h3>
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                          {group.batches.length} batch{group.batches.length === 1 ? "" : "es"}
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="truncate text-lg font-semibold tracking-tight">
+                              {group.name}
+                            </h3>
+                            <span className="rounded-full border border-border bg-background/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                              {group.batches.length} batch{group.batches.length === 1 ? "" : "es"}
+                            </span>
+                          </div>
+
+                          <p className="mt-1 truncate text-sm text-muted-foreground">
+                            {group.quantitySummary || "Quantity unavailable"}
+                          </p>
+                        </div>
+
+                        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-border bg-background/50 text-muted-foreground transition group-hover:border-primary/25 group-hover:text-primary">
+                          {expanded ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-5 flex flex-wrap items-center gap-2">
+                        <MetaPill>
+                          <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                          {cap(group.category)}
+                        </MetaPill>
+                        <MetaPill>
+                          <StorageIcon
+                            location={group.locations[0] ?? "pantry"}
+                          />
+                          {group.locations.length === 1
+                            ? cap(group.locations[0] ?? "pantry")
+                            : `${group.locations.length} locations`}
+                        </MetaPill>
+                      </div>
+
+                      <div className="mt-5 flex items-end justify-between gap-4 border-t border-border/70 pt-4">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            Earliest expiry
+                          </p>
+                          <p className="mt-1 text-sm font-semibold">
+                            {formatDate(group.earliestExpiry)}
+                          </p>
+                        </div>
+
+                        <span className={cn(
+                          "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                          expiry.className,
+                        )}>
+                          {expiry.label}
                         </span>
                       </div>
-                      <p className="mt-1 truncate text-sm text-muted-foreground">
-                        {group.quantitySummary}
-                      </p>
                     </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
-                    <span className="capitalize">
-                      {group.category}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <StorageIcon
-                        location={group.locations[0] ?? "pantry"}
-                      />
-                      {group.locations.length === 1
-                        ? cap(group.locations[0])
-                        : `${group.locations.length} locations`}
-                    </span>
-                  </div>
-
-                  <div>
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">
-                      Earliest expiry
-                    </p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      <span className="font-medium">
-                        {formatDate(group.earliestExpiry)}
-                      </span>
-                      <span className={cn(
-                        "rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                        expiry.className,
-                      )}>
-                        {expiry.label}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end">
-                    {expanded ? (
-                      <ChevronDown className="h-5 w-5 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                    )}
                   </div>
                 </button>
 
-                {expanded && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    className="border-t border-border bg-background/35 p-4 sm:p-5"
-                  >
-                    <div className="mb-3 flex items-center gap-2">
-                      <Layers3 className="h-4 w-4 text-primary" />
-                      <h4 className="text-sm font-semibold">
-                        Individual purchase batches
-                      </h4>
-                    </div>
-
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      {group.batches.map((batch, index) => {
-                        const batchExpiry = getExpiryPresentation(
-                          batch.expiry_date,
-                        );
-
-                        return (
-                          <div
-                            key={batch.id}
-                            className="rounded-2xl border border-border bg-card p-4"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                                  Batch {index + 1}
-                                </p>
-                                <p className="mt-1 font-semibold">
-                                  {formatNumber(quantityOf(batch))}{" "}
-                                  <span className="text-sm font-normal text-muted-foreground">
-                                    {formatUnit(
-                                      batch.unit,
-                                      quantityOf(batch),
-                                    )}
-                                  </span>
-                                </p>
-                              </div>
-
-                              <span className={cn(
-                                "rounded-full px-2.5 py-1 text-[11px] font-semibold",
-                                batchExpiry.className,
-                              )}>
-                                {batchExpiry.label}
-                              </span>
+                <AnimatePresence initial={false}>
+                  {expanded && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.25 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="border-t border-border bg-background/35 p-4 sm:p-5">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <div className="grid h-8 w-8 place-items-center rounded-xl bg-primary/10 text-primary">
+                              <Layers3 className="h-4 w-4" />
                             </div>
-
-                            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                              <BatchInfo
-                                icon={CalendarDays}
-                                label="Purchased"
-                                value={formatDate(batch.purchase_date)}
-                              />
-                              <BatchInfo
-                                icon={Clock3}
-                                label="Expires"
-                                value={formatDate(batch.expiry_date)}
-                              />
-                              <BatchInfo
-                                icon={Archive}
-                                label="Storage"
-                                value={cap(batch.storage_location as string)}
-                              />
-                              <BatchInfo
-                                icon={Package}
-                                label="Receipt name"
-                                value={batch.product_name}
-                              />
-                            </div>
-
-                            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border/70 pt-3">
-                              <Button asChild size="sm" variant="ghost">
-                                <Link
-                                  to="/pantry/$id"
-                                  params={{ id: batch.id }}
-                                >
-                                  View details
-                                </Link>
-                              </Button>
-
-                              <div className="flex gap-1">
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => {
-                                    setEditing(batch);
-                                    setDialogOpen(true);
-                                  }}
-                                >
-                                  <Edit2 className="h-3.5 w-3.5" />
-                                  <span className="sr-only">
-                                    Edit batch
-                                  </span>
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => setDeleting(batch)}
-                                >
-                                  <Trash2 className="h-3.5 w-3.5 text-danger" />
-                                  <span className="sr-only">
-                                    Delete batch
-                                  </span>
-                                </Button>
-                              </div>
+                            <div>
+                              <h4 className="text-sm font-semibold">
+                                Purchase batches
+                              </h4>
+                              <p className="text-xs text-muted-foreground">
+                                Each batch keeps its own dates and quantity.
+                              </p>
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
+
+                          <span className="hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
+                            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                            Active stock only
+                          </span>
+                        </div>
+
+                        <div className="grid gap-3">
+                          {group.batches.map((batch, batchIndex) => {
+                            const batchExpiry = getExpiryPresentation(
+                              batch.expiry_date,
+                            );
+
+                            return (
+                              <div
+                                key={batch.id}
+                                className="rounded-2xl border border-border bg-card p-4 transition hover:border-primary/25"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                      Batch {batchIndex + 1}
+                                    </p>
+                                    <p className="mt-1 text-lg font-semibold">
+                                      {formatNumber(quantityOf(batch))}{" "}
+                                      <span className="text-sm font-normal text-muted-foreground">
+                                        {formatUnit(
+                                          batch.unit,
+                                          quantityOf(batch),
+                                        )}
+                                      </span>
+                                    </p>
+                                  </div>
+
+                                  <span className={cn(
+                                    "rounded-full px-2.5 py-1 text-[11px] font-semibold",
+                                    batchExpiry.className,
+                                  )}>
+                                    {batchExpiry.label}
+                                  </span>
+                                </div>
+
+                                <div className="mt-4 grid grid-cols-2 gap-3">
+                                  <BatchInfo
+                                    icon={CalendarDays}
+                                    label="Purchased"
+                                    value={formatDate(batch.purchase_date)}
+                                  />
+                                  <BatchInfo
+                                    icon={Clock3}
+                                    label="Expires"
+                                    value={formatDate(batch.expiry_date)}
+                                  />
+                                  <BatchInfo
+                                    icon={Archive}
+                                    label="Storage"
+                                    value={cap(batch.storage_location as string)}
+                                  />
+                                  <BatchInfo
+                                    icon={Package}
+                                    label="Receipt name"
+                                    value={batch.product_name}
+                                  />
+                                </div>
+
+                                <div className="mt-4 flex items-center justify-between gap-2 border-t border-border/70 pt-3">
+                                  <Button
+                                    asChild
+                                    size="sm"
+                                    variant="ghost"
+                                    className="rounded-xl"
+                                  >
+                                    <Link
+                                      to="/pantry/$id"
+                                      params={{ id: batch.id }}
+                                    >
+                                      View details
+                                      <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                                    </Link>
+                                  </Button>
+
+                                  <div className="flex gap-1">
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-9 w-9 rounded-xl"
+                                      onClick={() => {
+                                        setEditing(batch);
+                                        setDialogOpen(true);
+                                      }}
+                                    >
+                                      <Edit2 className="h-3.5 w-3.5" />
+                                      <span className="sr-only">
+                                        Edit batch
+                                      </span>
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-9 w-9 rounded-xl hover:bg-danger/10"
+                                      onClick={() => setDeleting(batch)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5 text-danger" />
+                                      <span className="sr-only">
+                                        Delete batch
+                                      </span>
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </motion.article>
             );
           })}
-        </div>
+        </motion.div>
       )}
 
       <PantryFormDialog
@@ -1070,37 +1203,49 @@ function StatCard({
   value,
   note,
   tone = "default",
+  delay,
 }: {
   icon: typeof Package;
   label: string;
   value: number;
   note: string;
-  tone?: "default" | "warning" | "danger";
+  tone?: "default" | "warning";
+  delay: number;
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-          {label}
-        </p>
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay }}
+      whileHover={{ y: -3 }}
+      className="relative overflow-hidden rounded-[24px] border border-border bg-card p-5 transition hover:border-primary/30"
+    >
+      <div className="absolute -right-5 -top-5 h-20 w-20 rounded-full bg-primary/5 blur-2xl" />
+
+      <div className="relative flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+            {label}
+          </p>
+          <p className="mt-4 text-3xl font-bold tabular-nums">
+            {value}
+          </p>
+        </div>
+
         <div className={cn(
-          "grid h-8 w-8 place-items-center rounded-xl",
-          tone === "danger"
-            ? "bg-red-500/10 text-red-500"
-            : tone === "warning"
-              ? "bg-amber-500/10 text-amber-500"
-              : "bg-primary/10 text-primary",
+          "grid h-10 w-10 place-items-center rounded-2xl border",
+          tone === "warning"
+            ? "border-warning/15 bg-warning/10 text-warning"
+            : "border-primary/15 bg-primary/10 text-primary",
         )}>
-          <Icon className="h-4 w-4" />
+          <Icon className="h-5 w-5" />
         </div>
       </div>
-      <p className="mt-3 text-2xl font-bold tabular-nums">
-        {value}
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">
+
+      <p className="relative mt-2 text-xs text-muted-foreground">
         {note}
       </p>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1109,33 +1254,49 @@ function FilterTab({
   onClick,
   label,
   count,
+  urgent = false,
 }: {
   active: boolean;
   onClick: () => void;
   label: string;
   count: number;
+  urgent?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium transition",
+        "flex flex-1 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none",
         active
-          ? "border-primary bg-primary/10 text-primary"
-          : "border-border text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+          ? "bg-primary text-primary-foreground shadow-sm"
+          : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
       )}
     >
       {label}
       <span className={cn(
         "rounded-full px-1.5 py-0.5 text-[10px]",
         active
-          ? "bg-primary/15"
-          : "bg-muted",
+          ? "bg-white/15 text-current"
+          : urgent
+            ? "bg-warning/10 text-warning"
+            : "bg-muted text-muted-foreground",
       )}>
         {count}
       </span>
     </button>
+  );
+}
+
+function MetaPill({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/55 px-2.5 py-1 text-xs text-muted-foreground">
+      {children}
+    </span>
   );
 }
 
@@ -1145,14 +1306,14 @@ function StorageIcon({
   location: string;
 }) {
   if (location === "fridge") {
-    return <Refrigerator className="h-4 w-4" />;
+    return <Refrigerator className="h-3.5 w-3.5" />;
   }
 
   if (location === "freezer") {
-    return <Snowflake className="h-4 w-4" />;
+    return <Snowflake className="h-3.5 w-3.5" />;
   }
 
-  return <Warehouse className="h-4 w-4" />;
+  return <Warehouse className="h-3.5 w-3.5" />;
 }
 
 function BatchInfo({
@@ -1165,14 +1326,27 @@ function BatchInfo({
   value: string;
 }) {
   return (
-    <div className="min-w-0">
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+    <div className="min-w-0 rounded-xl bg-background/55 p-2.5">
+      <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
         <Icon className="h-3.5 w-3.5 shrink-0" />
         {label}
       </div>
-      <p className="mt-1 truncate text-sm">
+      <p className="mt-1 truncate text-xs font-medium">
         {value || "—"}
       </p>
+    </div>
+  );
+}
+
+function SkeletonGrid() {
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      {[0, 1, 2, 3].map((index) => (
+        <div
+          key={index}
+          className="h-56 animate-pulse rounded-[26px] border border-border bg-card/60"
+        />
+      ))}
     </div>
   );
 }
@@ -1192,21 +1366,21 @@ function getExpiryPresentation(
   if (days < 0) {
     return {
       label: `${Math.abs(days)}d expired`,
-      className: "bg-red-500/10 text-red-500",
+      className: "bg-danger/10 text-danger",
     };
   }
 
   if (days === 0) {
     return {
       label: "Use today",
-      className: "bg-red-500/10 text-red-500",
+      className: "bg-danger/10 text-danger",
     };
   }
 
   if (days <= 3) {
     return {
       label: `${days}d left`,
-      className: "bg-amber-500/10 text-amber-500",
+      className: "bg-warning/10 text-warning",
     };
   }
 
@@ -1219,6 +1393,6 @@ function getExpiryPresentation(
 
   return {
     label: "Safe",
-    className: "bg-emerald-500/10 text-emerald-500",
+    className: "bg-success/10 text-success",
   };
 }

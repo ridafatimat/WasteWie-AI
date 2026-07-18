@@ -17,26 +17,43 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from .auth import (
+    HOUSEHOLD_INVITE_LIFETIME_HOURS,
     create_access_token,
+    create_household_invite_token,
+    decode_household_invite_token,
     get_current_household_id,
+    get_current_membership,
     get_current_user,
     hash_password,
     verify_password,
 )
 from .database import Base, engine, get_db
-from .ml import predict_risk
+from .ml import (
+    ensure_training_sample,
+    maybe_retrain_household_model,
+    predict_risk,
+    resolve_expired_samples,
+    resolve_training_outcome,
+    should_retrain_household,
+)
 from .grocery_routes import router as grocery_router
+from .recipe_routes import router as recipe_router
 from .models import (
     Household,
     HouseholdMember,
+    HouseholdModel,
     InventoryEvent,
+    MLTrainingSample,
     PantryItem,
     User,
 )
+from .grocery_purchase_routes import router as grocery_purchase_router
 from .receipt_routes import router as receipt_router
 from .schemas import (
     EventCreate,
     EventRead,
+    HouseholdInviteRead,
+    HouseholdModelStatusRead,
     LoginRequest,
     PantryItemCreate,
     PantryItemRead,
@@ -62,7 +79,7 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="WasteWise API",
-    version="0.2.0",
+    version="0.3.0",
     openapi_url="/api/v1/openapi.json",
     docs_url="/docs",
 )
@@ -114,6 +131,29 @@ app.include_router(
 )
 
 
+# Register Groq-powered expiry-rescue recipe routes.
+#
+# recipe_routes.py already uses:
+#     prefix="/recommendations"
+#
+# This additional prefix creates:
+#     POST /api/v1/recommendations/recipes
+app.include_router(
+    recipe_router,
+    prefix="/api/v1",
+)
+
+
+# Register grocery-shopping purchase routes.
+#
+# These routes handle marking grocery-list items as purchased and
+# inserting the purchased quantity into Smart Pantry.
+app.include_router(
+    grocery_purchase_router,
+    prefix="/api/v1",
+)
+
+
 def get_risk_band(score: float) -> str:
     """Convert a risk probability into a user-facing risk band."""
 
@@ -136,6 +176,7 @@ def root():
         "health": "/api/v1/health",
         "receipt_scan": "/api/v1/receipts/scan",
         "grocery_lists": "/api/v1/grocery-lists/active",
+        "recipe_suggestions": "/api/v1/recommendations/recipes",
     }
 
 
@@ -158,13 +199,18 @@ def register(
     payload: RegisterRequest,
     db: Session = Depends(get_db),
 ):
-    """Register a user and create their first household."""
+    """
+    Register a user.
+
+    The user either creates a new household as its owner or joins an
+    existing household through a signed invite token.
+    """
 
     email = payload.email.strip().lower()
 
     existing_user = (
         db.query(User)
-        .filter_by(email=email)
+        .filter(User.email == email)
         .first()
     )
 
@@ -180,22 +226,53 @@ def register(
         password_hash=hash_password(payload.password),
     )
 
-    household = Household(
-        name=payload.household_name.strip(),
-    )
+    try:
+        if payload.household_invite_token:
+            household_id = decode_household_invite_token(
+                payload.household_invite_token
+            )
+            household = db.get(Household, household_id)
 
-    db.add_all([user, household])
-    db.flush()
+            if household is None:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="The invited household no longer exists",
+                )
 
-    membership = HouseholdMember(
-        user_id=user.id,
-        household_id=household.id,
-        role="owner",
-    )
+            role = "member"
+            db.add(user)
+            db.flush()
+        else:
+            if not payload.household_name:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="household_name is required",
+                )
 
-    db.add(membership)
-    db.commit()
-    db.refresh(user)
+            household = Household(
+                name=payload.household_name.strip(),
+            )
+            role = "owner"
+
+            db.add_all([user, household])
+            db.flush()
+
+        membership = HouseholdMember(
+            user_id=user.id,
+            household_id=household.id,
+            role=role,
+        )
+
+        db.add(membership)
+        db.commit()
+        db.refresh(user)
+
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
     return TokenRead(
         access_token=create_access_token(user),
@@ -246,10 +323,75 @@ def login(
 )
 def me(
     user: User = Depends(get_current_user),
+    membership: HouseholdMember = Depends(
+        get_current_membership
+    ),
+    db: Session = Depends(get_db),
 ):
-    """Return the currently authenticated user."""
+    """Return the authenticated user and their active household."""
 
-    return user
+    household = db.get(
+        Household,
+        membership.household_id,
+    )
+
+    if household is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The user's household no longer exists",
+        )
+
+    return UserRead(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        created_at=user.created_at,
+        household_id=household.id,
+        household_name=household.name,
+        household_role=membership.role,
+    )
+
+
+@app.post(
+    "/api/v1/households/invite",
+    response_model=HouseholdInviteRead,
+)
+def create_household_invite(
+    membership: HouseholdMember = Depends(
+        get_current_membership
+    ),
+    db: Session = Depends(get_db),
+):
+    """Create a signed invite for the current household."""
+
+    if membership.role != "owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a household owner can create invitations",
+        )
+
+    household = db.get(
+        Household,
+        membership.household_id,
+    )
+
+    if household is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The household no longer exists",
+        )
+
+    invite_token = create_household_invite_token(
+        household_id=household.id,
+        created_by_user_id=membership.user_id,
+    )
+
+    return HouseholdInviteRead(
+        household_id=household.id,
+        household_name=household.name,
+        invite_token=invite_token,
+        expires_in_hours=HOUSEHOLD_INVITE_LIFETIME_HOURS,
+    )
 
 
 @app.get(
@@ -312,6 +454,8 @@ def create_pantry_item(
     )
 
     db.add(item)
+    db.flush()
+    ensure_training_sample(db, item)
     db.commit()
     db.refresh(item)
 
@@ -370,11 +514,17 @@ def patch_pantry_item(
             detail="Pantry item not found",
         )
 
-    return update_item(
+    updated_item = update_item(
         db,
         item,
         payload,
     )
+
+    ensure_training_sample(db, updated_item)
+    db.commit()
+    db.refresh(updated_item)
+
+    return updated_item
 
 
 @app.delete(
@@ -435,11 +585,28 @@ def create_event(
             detail="Pantry item not found",
         )
 
-    return record_event(
+    event = record_event(
         db,
         item,
         payload,
     )
+
+    db.refresh(item)
+    outcome_resolved = resolve_training_outcome(
+        db,
+        item,
+        payload.event_type,
+    )
+
+    if outcome_resolved:
+        maybe_retrain_household_model(
+            db,
+            household_id,
+        )
+
+    db.commit()
+    db.refresh(event)
+    return event
 
 
 @app.get(
@@ -591,6 +758,15 @@ def waste_risk_predictions(
 
     predictions = []
 
+    expired_resolved = resolve_expired_samples(
+        db,
+        household_id=household_id,
+        today=date.today(),
+    )
+    if expired_resolved:
+        maybe_retrain_household_model(db, household_id)
+        db.commit()
+
     active_items = (
         db.query(PantryItem)
         .filter_by(
@@ -605,6 +781,7 @@ def waste_risk_predictions(
             predict_risk(
                 item,
                 date.today(),
+                db=db,
             )
         )
 
@@ -625,4 +802,70 @@ def waste_risk_predictions(
             prediction["risk_score"]
         ),
         reverse=True,
+    )
+
+@app.get(
+    "/api/v1/ml/household-model/status",
+    response_model=HouseholdModelStatusRead,
+)
+def household_model_status(
+    household_id: str = Depends(get_current_household_id),
+    db: Session = Depends(get_db),
+):
+    """Return family-model progress without exposing the artifact itself."""
+
+    state = (
+        db.query(HouseholdModel)
+        .filter_by(household_id=household_id)
+        .first()
+    )
+
+    total_resolved = (
+        db.query(MLTrainingSample)
+        .filter(
+            MLTrainingSample.household_id == household_id,
+            MLTrainingSample.label.is_not(None),
+        )
+        .count()
+    )
+
+    samples_at_last_training = (
+        state.samples_at_last_training if state else 0
+    )
+    new_outcomes = max(
+        0,
+        total_resolved - samples_at_last_training,
+    )
+
+    should_train, trigger_reason, _ = should_retrain_household(
+        db,
+        household_id,
+    )
+
+    if should_train:
+        next_trigger = "Ready for retraining"
+    elif new_outcomes < 5:
+        next_trigger = (
+            f"Collect {5 - new_outcomes} more resolved outcome(s) "
+            "for the 2-day trigger"
+        )
+    else:
+        next_trigger = (
+            f"Retrains at 25 outcomes or after 2 days; "
+            f"current trigger status: {trigger_reason}"
+        )
+
+    return HouseholdModelStatusRead(
+        household_id=household_id,
+        model_source=(
+            "household"
+            if state and state.artifact_path
+            else "global"
+        ),
+        version=state.version if state else 0,
+        total_resolved_outcomes=total_resolved,
+        new_outcomes_since_training=new_outcomes,
+        last_trained_at=(state.last_trained_at if state else None),
+        next_trigger=next_trigger,
+        metrics=state.metrics if state else None,
     )

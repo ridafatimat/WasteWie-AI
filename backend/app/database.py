@@ -10,31 +10,17 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 
-# Explicitly load backend/.env
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 ENV_PATH = BACKEND_DIR / ".env"
-
 load_dotenv(dotenv_path=ENV_PATH)
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "sqlite:///./wastewise.db",
-)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./wastewise.db")
 
-engine_options: dict = {
-    "pool_pre_ping": True,
-}
-
-# SQLite needs this setting, PostgreSQL does not.
+engine_options: dict = {"pool_pre_ping": True}
 if DATABASE_URL.startswith("sqlite"):
-    engine_options["connect_args"] = {
-        "check_same_thread": False,
-    }
+    engine_options["connect_args"] = {"check_same_thread": False}
 
-engine = create_engine(
-    DATABASE_URL,
-    **engine_options,
-)
+engine = create_engine(DATABASE_URL, **engine_options)
 
 SessionLocal = sessionmaker(
     autocommit=False,
@@ -49,7 +35,6 @@ class Base(DeclarativeBase):
 
 def get_db():
     db = SessionLocal()
-
     try:
         yield db
     finally:
